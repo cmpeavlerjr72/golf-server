@@ -1,7 +1,8 @@
 const express = require('express');
 const fs = require('fs');
-const bodyParser = require('body-parser');
+const fetch = require('node-fetch');
 const cors = require('cors');
+const bodyParser = require('body-parser');
 const app = express();
 const PORT = 5000;
 
@@ -9,14 +10,29 @@ const PORT = 5000;
 app.use(cors());
 app.use(bodyParser.json());
 
-// Paths to JSON files
-const DB_FILE = './data/leagues.json';
-const TOURNAMENT_STATS_FILE = './data/live_tournament_stats.json';
-const FIELD_FILE = './data/field.json';
-const RANKINGS_FILE = './data/rankings.json';
-const HOLES_FILE = './data/holes.json';
+// Path to data files
+const DATA_PATH = './data';
+const FILES = {
+  holeByHole: `${DATA_PATH}/holes.json`,
+  liveStats: `${DATA_PATH}/live_tournament_stats.json`,
+  fieldList: `${DATA_PATH}/field.json`,
+  rankings: `${DATA_PATH}/rankings.json`,
+  leagues: `${DATA_PATH}/leagues.json`,
+};
 
-// Utility to read a JSON file
+// Keep track of the last update time
+let lastUpdateTime = null;
+let lastFieldUpdate = null;
+
+// Helper function to get the current Eastern Time
+const getEasternTime = () => {
+  const now = new Date();
+  const estOffset = -5; // EST is UTC-5
+  const estTime = new Date(now.getTime() + estOffset * 60 * 60 * 1000);
+  return estTime.toISOString();
+};
+
+// Helper function to read JSON files
 const readJsonFile = (filePath, defaultValue = {}) => {
   try {
     if (!fs.existsSync(filePath)) {
@@ -30,7 +46,7 @@ const readJsonFile = (filePath, defaultValue = {}) => {
   }
 };
 
-// Utility to write to a JSON file
+// Helper function to write JSON files
 const writeJsonFile = (filePath, data) => {
   try {
     fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
@@ -40,15 +56,90 @@ const writeJsonFile = (filePath, data) => {
   }
 };
 
-// API: Get all leagues
+// Function to update the hole-by-hole data
+const updateHoleByHole = async () => {
+  const apiEndpoint =
+    'https://feeds.datagolf.com/preds/live-hole-scores?file_format=json&key=6ab61410e3a9f4ff69805349dca4';
+  try {
+    const response = await fetch(apiEndpoint);
+    if (response.ok) {
+      const data = await response.json();
+      fs.writeFileSync(FILES.holeByHole, JSON.stringify(data, null, 2));
+      console.log(`[${getEasternTime()}] Updated holes.json`);
+    } else {
+      console.error(`Failed to fetch hole-by-hole data: ${response.status}`);
+    }
+  } catch (error) {
+    console.error('Error updating hole-by-hole data:', error.message);
+  }
+};
+
+// Function to update live tournament stats
+const updateLiveStats = async () => {
+  const apiEndpoint =
+    'https://feeds.datagolf.com/preds/live-tournament-stats?stats=sg_ott,distance,accuracy,sg_app,gir,prox_fw,sg_putt,scrambling&round=event_avg&display=value&key=6ab61410e3a9f4ff69805349dca4';
+  try {
+    const response = await fetch(apiEndpoint);
+    if (response.ok) {
+      const data = await response.json();
+      fs.writeFileSync(FILES.liveStats, JSON.stringify(data, null, 2));
+      console.log(`[${getEasternTime()}] Updated live_tournament_stats.json`);
+    } else {
+      console.error(`Failed to fetch live stats: ${response.status}`);
+    }
+  } catch (error) {
+    console.error('Error updating live stats:', error.message);
+  }
+};
+
+// Function to update the field list (once per day)
+const updateFieldList = async () => {
+  const apiEndpoint =
+    'https://feeds.datagolf.com/field-updates?tour=pga&file_format=json&key=6ab61410e3a9f4ff69805349dca4';
+  try {
+    const response = await fetch(apiEndpoint);
+    if (response.ok) {
+      const data = await response.json();
+      fs.writeFileSync(FILES.fieldList, JSON.stringify(data, null, 2));
+      console.log(`[${getEasternTime()}] Updated field.json`);
+    } else {
+      console.error(`Failed to fetch field list: ${response.status}`);
+    }
+  } catch (error) {
+    console.error('Error updating field list:', error.message);
+  }
+};
+
+// Routes to serve JSON data
+app.get('/live-stats', (req, res) => {
+  const data = readJsonFile(FILES.liveStats, []);
+  res.json(data);
+});
+
+app.get('/field', (req, res) => {
+  const data = readJsonFile(FILES.fieldList, []);
+  res.json(data);
+});
+
+app.get('/rankings', (req, res) => {
+  const data = readJsonFile(FILES.rankings, []);
+  res.json(data);
+});
+
+app.get('/holes', (req, res) => {
+  const data = readJsonFile(FILES.holeByHole, []);
+  res.json(data);
+});
+
+// Route: Get all leagues
 app.get('/leagues', (req, res) => {
-  const data = readJsonFile(DB_FILE, { leagues: {} });
+  const data = readJsonFile(FILES.leagues, { leagues: {} });
   res.json(data.leagues);
 });
 
-// API: Get a specific league by ID
+// Route: Get a specific league by ID
 app.get('/leagues/:id', (req, res) => {
-  const data = readJsonFile(DB_FILE, { leagues: {} });
+  const data = readJsonFile(FILES.leagues, { leagues: {} });
   const league = data.leagues[req.params.id];
   if (!league) {
     console.error(`League with ID ${req.params.id} not found.`);
@@ -57,10 +148,10 @@ app.get('/leagues/:id', (req, res) => {
   res.json(league);
 });
 
-// API: Create a new league
+// Route: Create a new league
 app.post('/leagues', (req, res) => {
   try {
-    const data = readJsonFile(DB_FILE, { leagues: {} });
+    const data = readJsonFile(FILES.leagues, { leagues: {} });
     const { teams, teamNames } = req.body;
 
     // Determine the next league ID
@@ -68,8 +159,8 @@ app.post('/leagues', (req, res) => {
     const nextId = existingIds.length > 0 ? Math.max(...existingIds) + 1 : 1;
 
     // Save the new league
-    data.leagues[nextId] = { teams, teamNames };
-    writeJsonFile(DB_FILE, data);
+    data.leagues[nextId] = { teams: teams || [], teamNames: teamNames || [] };
+    writeJsonFile(FILES.leagues, data);
 
     console.log(`New league created with ID: ${nextId}`);
     res.status(201).json({ leagueId: nextId });
@@ -79,10 +170,10 @@ app.post('/leagues', (req, res) => {
   }
 });
 
-// API: Update an existing league
+// Route: Update an existing league
 app.put('/leagues/:id', (req, res) => {
   try {
-    const data = readJsonFile(DB_FILE, { leagues: {} });
+    const data = readJsonFile(FILES.leagues, { leagues: {} });
     const league = data.leagues[req.params.id];
     if (!league) {
       console.error(`League with ID ${req.params.id} not found.`);
@@ -91,7 +182,7 @@ app.put('/leagues/:id', (req, res) => {
 
     // Update league data
     data.leagues[req.params.id] = { ...league, ...req.body };
-    writeJsonFile(DB_FILE, data);
+    writeJsonFile(FILES.leagues, data);
 
     console.log(`League with ID ${req.params.id} updated.`);
     res.json(data.leagues[req.params.id]);
@@ -101,47 +192,45 @@ app.put('/leagues/:id', (req, res) => {
   }
 });
 
-// API: Get live tournament stats
-app.get('/tournament-stats', (req, res) => {
+// Route: Update data for hole-by-hole, live stats, and field list
+app.post('/update-data', async (req, res) => {
   try {
-    const data = readJsonFile(TOURNAMENT_STATS_FILE);
-    res.json(data);
-  } catch (error) {
-    console.error('Error reading tournament stats:', error.message);
-    res.status(500).json({ error: 'Failed to retrieve tournament stats' });
-  }
-});
+    const currentTime = new Date();
+    const easternTime = getEasternTime();
 
-// API: Get field data
-app.get('/field', (req, res) => {
-  try {
-    const data = readJsonFile(FIELD_FILE);
-    res.json(data);
-  } catch (error) {
-    console.error('Error reading field data:', error.message);
-    res.status(500).json({ error: 'Failed to retrieve field data' });
-  }
-});
+    // Enforce a 5-minute rule for updates
+    if (lastUpdateTime) {
+      const timeDifference = (currentTime - new Date(lastUpdateTime)) / 1000 / 60; // In minutes
+      if (timeDifference < 5) {
+        return res
+          .status(429)
+          .send(
+            `Updates are only allowed every 5 minutes. Please wait ${Math.ceil(
+              5 - timeDifference
+            )} minute(s) before trying again.`
+          );
+      }
+    }
 
-// API: Get rankings data
-app.get('/rankings', (req, res) => {
-  try {
-    const data = readJsonFile(RANKINGS_FILE);
-    res.json(data);
-  } catch (error) {
-    console.error('Error reading rankings data:', error.message);
-    res.status(500).json({ error: 'Failed to retrieve rankings data' });
-  }
-});
+    // Update hole-by-hole data and live stats
+    await updateHoleByHole();
+    await updateLiveStats();
 
-// API: Get rankings data
-app.get('/holes', (req, res) => {
-  try {
-    const data = readJsonFile(HOLES_FILE);
-    res.json(data);
+    // Update the field list if it's the first update of the day
+    const today = new Date().toISOString().split('T')[0]; // Current date (UTC)
+    if (lastFieldUpdate !== today) {
+      await updateFieldList();
+      lastFieldUpdate = today;
+    }
+
+    // Record the last update time
+    lastUpdateTime = currentTime;
+    console.log(`[${easternTime}] Data updated successfully`);
+
+    res.status(200).json({ message: 'Data updated successfully', lastUpdateTime: easternTime });
   } catch (error) {
-    console.error('Error reading rankings data:', error.message);
-    res.status(500).json({ error: 'Failed to retrieve rankings data' });
+    console.error(`[${getEasternTime()}] Error updating data:`, error.message);
+    res.status(500).send('Failed to update data');
   }
 });
 
@@ -149,5 +238,3 @@ app.get('/holes', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
 });
-
-
