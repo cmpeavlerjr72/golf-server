@@ -1,0 +1,715 @@
+{
+  "leagues": {
+    "1": {
+      "teams": [
+        [
+          {
+            "golfer": "Scottie Scheffler",
+            "rank": "1",
+            "odds": "16/1"
+          },
+          {
+            "golfer": "Cameron Smith",
+            "rank": "6",
+            "odds": "16/1"
+          },
+          {
+            "golfer": "Justin Thomas",
+            "rank": "7",
+            "odds": "12/1"
+          },
+          {
+            "golfer": "Hideki Matsuyama",
+            "rank": "12",
+            "odds": "25/1"
+          },
+          {
+            "golfer": "Billy Horschel",
+            "rank": "13",
+            "odds": "100/1"
+          },
+          {
+            "golfer": "Tyrrell Hatton",
+            "rank": "18",
+            "odds": "50/1"
+          }
+        ],
+        [
+          {
+            "golfer": "Jon Rahm",
+            "rank": "2",
+            "odds": "8/1"
+          },
+          {
+            "golfer": "Patrick Cantlay",
+            "rank": "5",
+            "odds": "16/1"
+          },
+          {
+            "golfer": "Dustin Johnson",
+            "rank": "8",
+            "odds": "16/1"
+          },
+          {
+            "golfer": "Sam Burns",
+            "rank": "11",
+            "odds": "40/1"
+          },
+          {
+            "golfer": "Bryson DeChambeau",
+            "rank": "14",
+            "odds": "20/1"
+          },
+          {
+            "golfer": "Jordan Spieth",
+            "rank": "17",
+            "odds": "12/1"
+          }
+        ],
+        [
+          {
+            "golfer": "Collin Morikawa",
+            "rank": "3",
+            "odds": "12/1"
+          },
+          {
+            "golfer": "Viktor Hovland",
+            "rank": "4",
+            "odds": "18/1"
+          },
+          {
+            "golfer": "Rory McIlroy",
+            "rank": "9",
+            "odds": "14/1"
+          },
+          {
+            "golfer": "Xander Schauffele",
+            "rank": "10",
+            "odds": "18/1"
+          },
+          {
+            "golfer": "Louis Oosthuizen",
+            "rank": "15",
+            "odds": "40/1"
+          },
+          {
+            "golfer": "Abraham Ancer",
+            "rank": "16",
+            "odds": "65/1"
+          }
+        ]
+      ],
+      "teamNames": [
+        "Tillman",
+        "Mitchell",
+        "Matt"
+      ]
+    },
+    "2": {
+      "teams": [
+        [
+          {
+            "golfer": "Scottie Scheffler",
+            "rank": "1",
+            "odds": "16/1"
+          },
+          {
+            "golfer": "Viktor Hovland",
+            "rank": "4",
+            "odds": "18/1"
+          },
+          {
+            "golfer": "Patrick Cantlay",
+            "rank": "5",
+            "odds": "16/1"
+          },
+          {
+            "golfer": "Dustin Johnson",
+            "rank": "8",
+            "odds": "16/1"
+          },
+          {
+            "golfer": "Rory McIlroy",
+            "rank": "9",
+            "odds": "14/1"
+          },
+          {
+            "golfer": "Hideki Matsuyama",
+            "rank": "12",
+            "odds": "25/1"
+          }
+        ],
+        [
+          {
+            "golfer": "Jon Rahm",
+            "rank": "2",
+            "odds": "8/1"
+          },
+          {
+            "golfer": "Collin Morikawa",
+            "rank": "3",
+            "odds": "12/1"
+          },
+          {
+            "golfer": "Cameron Smith",
+            "rank": "6",
+            "odds": "16/1"
+          },
+          {
+            "golfer": "Justin Thomas",
+            "rank": "7",
+            "odds": "12/1"
+          },
+          {
+            "golfer": "Xander Schauffele",
+            "rank": "10",
+            "odds": "18/1"
+          },
+          {
+            "golfer": "Sam Burns",
+            "rank": "11",
+            "odds": "40/1"
+          }
+        ]
+      ],
+      "teamNames": [
+        "Zach",
+        "Phil"
+      ]
+    },
+    "3": {
+      "teams": [
+        [
+          {
+            "golfer": "Scottie Scheffler",
+            "rank": "1",
+            "odds": "16/1"
+          },
+          {
+            "golfer": "Hideki Matsuyama",
+            "rank": "12",
+            "odds": "25/1"
+          },
+          {
+            "golfer": "Billy Horschel",
+            "rank": "13",
+            "odds": "100/1"
+          },
+          {
+            "golfer": "Matt Fitzpatrick",
+            "rank": "24",
+            "odds": "50/1"
+          },
+          {
+            "golfer": "Paul Casey",
+            "rank": "25",
+            "odds": "50/1"
+          },
+          {
+            "golfer": "Adam Scott",
+            "rank": "36",
+            "odds": "60/1"
+          }
+        ],
+        [
+          {
+            "golfer": "Jon Rahm",
+            "rank": "2",
+            "odds": "8/1"
+          },
+          {
+            "golfer": "Sam Burns",
+            "rank": "11",
+            "odds": "40/1"
+          },
+          {
+            "golfer": "Bryson DeChambeau",
+            "rank": "14",
+            "odds": "20/1"
+          },
+          {
+            "golfer": "Tony Finau",
+            "rank": "23",
+            "odds": "35/1"
+          },
+          {
+            "golfer": "Sungjae Im",
+            "rank": "26",
+            "odds": "40/1"
+          },
+          {
+            "golfer": "Shane Lowry",
+            "rank": "35",
+            "odds": "60/1"
+          }
+        ],
+        [
+          {
+            "golfer": "Collin Morikawa",
+            "rank": "3",
+            "odds": "12/1"
+          },
+          {
+            "golfer": "Xander Schauffele",
+            "rank": "10",
+            "odds": "18/1"
+          },
+          {
+            "golfer": "Louis Oosthuizen",
+            "rank": "15",
+            "odds": "40/1"
+          },
+          {
+            "golfer": "Daniel Berger",
+            "rank": "22",
+            "odds": "40/1"
+          },
+          {
+            "golfer": "Kevin Kisner",
+            "rank": "27",
+            "odds": "150/1"
+          },
+          {
+            "golfer": "Thomas Pieters",
+            "rank": "34",
+            "odds": "100/1"
+          }
+        ],
+        [
+          {
+            "golfer": "Viktor Hovland",
+            "rank": "4",
+            "odds": "18/1"
+          },
+          {
+            "golfer": "Rory McIlroy",
+            "rank": "9",
+            "odds": "14/1"
+          },
+          {
+            "golfer": "Abraham Ancer",
+            "rank": "16",
+            "odds": "65/1"
+          },
+          {
+            "golfer": "Harris English",
+            "rank": "21",
+            "odds": "80/1"
+          },
+          {
+            "golfer": "Jason Kokrak",
+            "rank": "28",
+            "odds": "100/1"
+          },
+          {
+            "golfer": "Talor Gooch",
+            "rank": "33",
+            "odds": "100/1"
+          }
+        ],
+        [
+          {
+            "golfer": "Patrick Cantlay",
+            "rank": "5",
+            "odds": "16/1"
+          },
+          {
+            "golfer": "Dustin Johnson",
+            "rank": "8",
+            "odds": "16/1"
+          },
+          {
+            "golfer": "Jordan Spieth",
+            "rank": "17",
+            "odds": "12/1"
+          },
+          {
+            "golfer": "Joaquin Niemann",
+            "rank": "20",
+            "odds": "45/1"
+          },
+          {
+            "golfer": "Will Zalatoris",
+            "rank": "29",
+            "odds": "35/1"
+          },
+          {
+            "golfer": "Corey Conners",
+            "rank": "32",
+            "odds": "65/1"
+          }
+        ],
+        [
+          {
+            "golfer": "Cameron Smith",
+            "rank": "6",
+            "odds": "16/1"
+          },
+          {
+            "golfer": "Justin Thomas",
+            "rank": "7",
+            "odds": "12/1"
+          },
+          {
+            "golfer": "Tyrrell Hatton",
+            "rank": "18",
+            "odds": "50/1"
+          },
+          {
+            "golfer": "Brooks Koepka",
+            "rank": "19",
+            "odds": "18/1"
+          },
+          {
+            "golfer": "Kevin Na",
+            "rank": "30",
+            "odds": "100/1"
+          },
+          {
+            "golfer": "Patrick Reed",
+            "rank": "31",
+            "odds": "35/1"
+          }
+        ]
+      ],
+      "teamNames": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E",
+        "F"
+      ]
+    },
+    "4": {
+      "teams": [
+        [
+          {
+            "id": 23604,
+            "name": "Clark, Wyndham",
+            "owgr_rank": 7,
+            "dg_rank": 30
+          },
+          {
+            "id": 17488,
+            "name": "Im, Sungjae",
+            "owgr_rank": 19,
+            "dg_rank": 8
+          },
+          {
+            "id": 19483,
+            "name": "Burns, Sam",
+            "owgr_rank": 20,
+            "dg_rank": 13
+          },
+          {
+            "id": 11676,
+            "name": "Finau, Tony",
+            "owgr_rank": 24,
+            "dg_rank": 20
+          },
+          {
+            "id": 8825,
+            "name": "Harman, Brian",
+            "owgr_rank": 28,
+            "dg_rank": 64
+          },
+          {
+            "id": 21554,
+            "name": "Poston, J.T.",
+            "owgr_rank": 35,
+            "dg_rank": 45
+          }
+        ],
+        [
+          {
+            "id": 15466,
+            "name": "Cantlay, Patrick",
+            "owgr_rank": 12,
+            "dg_rank": 12
+          },
+          {
+            "id": 11276,
+            "name": "Horschel, Billy",
+            "owgr_rank": 16,
+            "dg_rank": 72
+          },
+          {
+            "id": 14139,
+            "name": "Thomas, Justin",
+            "owgr_rank": 21,
+            "dg_rank": 11
+          },
+          {
+            "id": 24766,
+            "name": "Kim, Tom",
+            "owgr_rank": 23,
+            "dg_rank": 26
+          },
+          {
+            "id": 13126,
+            "name": "Taylor, Nick",
+            "owgr_rank": 29,
+            "dg_rank": 139
+          },
+          {
+            "id": 28270,
+            "name": "Dunlap, Nick",
+            "owgr_rank": 32,
+            "dg_rank": 109
+          }
+        ]
+      ],
+      "teamNames": [
+        "Tillman",
+        "Mitchell"
+      ]
+    },
+    "5": {
+      "teams": [
+        [
+          {
+            "id": 23604,
+            "name": "Clark, Wyndham",
+            "owgr_rank": 7,
+            "dg_rank": 30
+          },
+          {
+            "id": 11676,
+            "name": "Finau, Tony",
+            "owgr_rank": 24,
+            "dg_rank": 20
+          },
+          {
+            "id": 8825,
+            "name": "Harman, Brian",
+            "owgr_rank": 28,
+            "dg_rank": 64
+          },
+          {
+            "id": 22833,
+            "name": "Echavarria, Nicolas",
+            "owgr_rank": 41,
+            "dg_rank": 61
+          },
+          {
+            "id": 27364,
+            "name": "Thompson, Davis",
+            "owgr_rank": 46,
+            "dg_rank": 40
+          },
+          {
+            "id": 15556,
+            "name": "Hughes, Mackenzie",
+            "owgr_rank": 59,
+            "dg_rank": 62
+          }
+        ],
+        [
+          {
+            "id": 15466,
+            "name": "Cantlay, Patrick",
+            "owgr_rank": 12,
+            "dg_rank": 12
+          },
+          {
+            "id": 24766,
+            "name": "Kim, Tom",
+            "owgr_rank": 23,
+            "dg_rank": 26
+          },
+          {
+            "id": 13126,
+            "name": "Taylor, Nick",
+            "owgr_rank": 29,
+            "dg_rank": 139
+          },
+          {
+            "id": 23465,
+            "name": "Greyserman, Max",
+            "owgr_rank": 39,
+            "dg_rank": 21
+          },
+          {
+            "id": 9771,
+            "name": "Day, Jason",
+            "owgr_rank": 47,
+            "dg_rank": 54
+          },
+          {
+            "id": 18103,
+            "name": "Bezuidenhout, Christiaan",
+            "owgr_rank": 57,
+            "dg_rank": 48
+          }
+        ],
+        [
+          {
+            "id": 11276,
+            "name": "Horschel, Billy",
+            "owgr_rank": 16,
+            "dg_rank": 72
+          },
+          {
+            "id": 14139,
+            "name": "Thomas, Justin",
+            "owgr_rank": 21,
+            "dg_rank": 11
+          },
+          {
+            "id": 28270,
+            "name": "Dunlap, Nick",
+            "owgr_rank": 32,
+            "dg_rank": 109
+          },
+          {
+            "id": 26651,
+            "name": "Young, Cameron",
+            "owgr_rank": 37,
+            "dg_rank": 44
+          },
+          {
+            "id": 28635,
+            "name": "McCarty, Matt",
+            "owgr_rank": 50,
+            "dg_rank": 130
+          },
+          {
+            "id": 7399,
+            "name": "Glover, Lucas",
+            "owgr_rank": 54,
+            "dg_rank": 56
+          }
+        ],
+        [
+          {
+            "id": 17488,
+            "name": "Im, Sungjae",
+            "owgr_rank": 19,
+            "dg_rank": 8
+          },
+          {
+            "id": 19483,
+            "name": "Burns, Sam",
+            "owgr_rank": 20,
+            "dg_rank": 13
+          },
+          {
+            "id": 21554,
+            "name": "Poston, J.T.",
+            "owgr_rank": 35,
+            "dg_rank": 45
+          },
+          {
+            "id": 17511,
+            "name": "Straka, Sepp",
+            "owgr_rank": 36,
+            "dg_rank": 50
+          },
+          {
+            "id": 21756,
+            "name": "Cole, Eric",
+            "owgr_rank": 51,
+            "dg_rank": 51
+          },
+          {
+            "id": 17786,
+            "name": "Davis, Cameron",
+            "owgr_rank": 52,
+            "dg_rank": 112
+          }
+        ]
+      ],
+      "teamNames": [
+        "Matt",
+        "Ryan",
+        "Till",
+        "Mitchell"
+      ]
+    },
+    "6": {
+      "teams": [
+        [
+          {
+            "id": 23950,
+            "name": "Aberg, Ludvig",
+            "owgr_rank": 6,
+            "dg_rank": 9
+          },
+          {
+            "id": 15330,
+            "name": "Griffin, Lanto",
+            "owgr_rank": 305,
+            "dg_rank": 177
+          },
+          {
+            "id": 27900,
+            "name": "Potgieter, Aldrich",
+            "owgr_rank": 216,
+            "dg_rank": 421
+          },
+          {
+            "id": 13497,
+            "name": "Lee, Kyounghoon",
+            "owgr_rank": 160,
+            "dg_rank": 255
+          },
+          {
+            "id": 27820,
+            "name": "Pak, John",
+            "owgr_rank": 248,
+            "dg_rank": 464
+          },
+          {
+            "id": 6252,
+            "name": "Baddeley, Aaron",
+            "owgr_rank": 1000,
+            "dg_rank": 1000
+          }
+        ],
+        [
+          {
+            "id": 25003,
+            "name": "Walker, Danny",
+            "owgr_rank": 294,
+            "dg_rank": 299
+          },
+          {
+            "id": 21995,
+            "name": "Springer, Hayden",
+            "owgr_rank": 184,
+            "dg_rank": 241
+          },
+          {
+            "id": 17639,
+            "name": "Blair, Zac",
+            "owgr_rank": 171,
+            "dg_rank": 249
+          },
+          {
+            "id": 6986,
+            "name": "Johnson, Zach",
+            "owgr_rank": 315,
+            "dg_rank": 164
+          },
+          {
+            "id": 24837,
+            "name": "Goodwin, Noah",
+            "owgr_rank": 363,
+            "dg_rank": 303
+          },
+          {
+            "id": 18770,
+            "name": "Rozner, Antoine",
+            "owgr_rank": 148,
+            "dg_rank": 165
+          }
+        ]
+      ],
+      "teamNames": [
+        "Tillman",
+        "Mitchell"
+      ]
+    }
+  }
+}
