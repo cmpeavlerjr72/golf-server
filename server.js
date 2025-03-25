@@ -22,8 +22,8 @@ const FILES = {
   leagues: `${DATA_PATH}/leagues.json`,
 };
 
-const GITHUB_REPO = 'cmpeavlerjr72/golf-league-backup';
-const GITHUB_FILE_PATH = 'leagues.json';
+const GITHUB_REPO = process.env.GITHUB_REPO;
+const GITHUB_FILE_PATH = process.env.GITHUB_FILE_PATH;
 const GITHUB_API_URL = `https://api.github.com/repos/${GITHUB_REPO}/contents/${GITHUB_FILE_PATH}`;
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 
