@@ -220,12 +220,13 @@ io.on('connection', (socket) => {
 
   socket.on('assign-team', ({ leagueId, teamIndex }) => {
     if (!teamOwners[leagueId]) teamOwners[leagueId] = {};
-    // Allow reassignment if team isn't taken or if it's the same client
     if (!teamOwners[leagueId][teamIndex] || teamOwners[leagueId][teamIndex] === socket.id) {
       teamOwners[leagueId][teamIndex] = socket.id;
       console.log(`Assigned team ${teamIndex} in league ${leagueId} to socket ${socket.id}`);
+      socket.emit('team-assigned', { success: true, teamIndex });
     } else {
       console.log(`Team ${teamIndex} in league ${leagueId} already taken`);
+      socket.emit('team-assigned', { success: false, message: 'Team already taken by another user.' });
     }
   });
 
@@ -234,7 +235,6 @@ io.on('connection', (socket) => {
     const data = readJsonFile(FILES.leagues, { leagues: {} });
     if (!data.leagues[leagueId]) return;
 
-    // Validate: Only allow pick if socket owns the current team
     if (!teamOwners[leagueId] || teamOwners[leagueId][teamIndex] !== socket.id) {
       console.log(`Rejected pick: Socket ${socket.id} does not own team ${teamIndex}`);
       return;
@@ -250,7 +250,14 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     console.log('🔴 User disconnected:', socket.id);
-    // Optionally clean up teamOwners, but keeping it simple for now
+    // Optionally clear team ownership on disconnect
+    for (const leagueId in teamOwners) {
+      for (const teamIndex in teamOwners[leagueId]) {
+        if (teamOwners[leagueId][teamIndex] === socket.id) {
+          delete teamOwners[leagueId][teamIndex];
+        }
+      }
+    }
   });
 });
 
