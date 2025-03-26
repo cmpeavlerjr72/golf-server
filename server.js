@@ -13,6 +13,9 @@ const io = new Server(server, {
   cors: { origin: '*' },
 });
 
+// Track team ownership: { leagueId: { teamIndex: socket.id } }
+const teamOwners = {};
+
 const PORT = process.env.PORT || 5000;
 
 // Middleware
@@ -215,11 +218,25 @@ app.post('/update-data', async (req, res) => {
 io.on('connection', (socket) => {
   console.log('🟢 New user connected:', socket.id);
 
+  socket.on('assign-team', ({ leagueId, teamIndex }) => {
+    if (!teamOwners[leagueId]) teamOwners[leagueId] = {};
+    // Allow reassignment if team isn't taken or if it's the same client
+    if (!teamOwners[leagueId][teamIndex] || teamOwners[leagueId][teamIndex] === socket.id) {
+      teamOwners[leagueId][teamIndex] = socket.id;
+      console.log(`Assigned team ${teamIndex} in league ${leagueId} to socket ${socket.id}`);
+    } else {
+      console.log(`Team ${teamIndex} in league ${leagueId} already taken`);
+    }
+  });
+
   socket.on('draft-pick', ({ leagueId, teamIndex, player }) => {
     console.log(`Received draft-pick: leagueId=${leagueId}, teamIndex=${teamIndex}, player=${player.name}`);
     const data = readJsonFile(FILES.leagues, { leagues: {} });
-    if (!data.leagues[leagueId]) {
-      console.log(`League ${leagueId} not found`);
+    if (!data.leagues[leagueId]) return;
+
+    // Validate: Only allow pick if socket owns the current team
+    if (!teamOwners[leagueId] || teamOwners[leagueId][teamIndex] !== socket.id) {
+      console.log(`Rejected pick: Socket ${socket.id} does not own team ${teamIndex}`);
       return;
     }
 
@@ -233,6 +250,7 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     console.log('🔴 User disconnected:', socket.id);
+    // Optionally clean up teamOwners, but keeping it simple for now
   });
 });
 
