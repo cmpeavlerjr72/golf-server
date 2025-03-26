@@ -219,11 +219,10 @@ app.post('/update-data', async (req, res) => {
 io.on('connection', socket => {
   console.log('🟢 New user connected');
 
-  // Send full league state on connection (optional)
   socket.on('join-league', (leagueId) => {
     const data = readJsonFile(FILES.leagues, { leagues: {} });
     if (data.leagues[leagueId]) {
-      socket.join(leagueId); // Join the Socket.IO room
+      socket.join(leagueId);
       socket.emit('league-state', {
         leagueId,
         state: data.leagues[leagueId]
@@ -231,23 +230,37 @@ io.on('connection', socket => {
     }
   });
 
-  // Handle a draft pick
-  socket.on('draftPlayer', ({ leagueId, player, currentTeam, sortedPlayers, teams, teamNames, snakeDirection }) => {
+  socket.on('draftPlayer', ({ leagueId, player, currentTeam, teamIndex, sortedPlayers, teams, teamNames, snakeDirection }) => {
     const data = readJsonFile(FILES.leagues, { leagues: {} });
     const league = data.leagues[leagueId];
     if (!league) return;
-  
+
+    // Make sure it's the right team's turn
+    if (currentTeam !== teamIndex) {
+      console.warn(`Team ${teamIndex} attempted pick out of turn.`);
+      return;
+    }
+
+    // Prevent duplicate drafting
+    const playerAlreadyDrafted = league.teams.some(team =>
+      team.find(p => p.id === player.id)
+    );
+    if (playerAlreadyDrafted) {
+      console.warn(`Duplicate draft attempt for ${player.name}`);
+      return;
+    }
+
     const updatedTeams = [...teams];
+    updatedTeams[teamIndex] = [...updatedTeams[teamIndex], player];
+
     const updatedSortedPlayers = sortedPlayers.filter(p => p.id !== player.id);
-    updatedTeams[currentTeam] = [...updatedTeams[currentTeam], player];
-  
-    // Check if all teams are full (6 players each)
     const draftComplete = updatedTeams.every(team => team.length === 6);
-  
-    let nextTeam = currentTeam;
+
+    let nextTeam = teamIndex;
     let nextSnake = snakeDirection;
+
     if (!draftComplete) {
-      const tentativeNext = currentTeam + snakeDirection;
+      const tentativeNext = teamIndex + snakeDirection;
       if (tentativeNext >= updatedTeams.length) {
         nextTeam = updatedTeams.length - 1;
         nextSnake = -1;
@@ -257,27 +270,32 @@ io.on('connection', socket => {
       } else {
         nextTeam = tentativeNext;
       }
+    } else {
+      nextTeam = null;
     }
-  
-    // Save changes to file
+
     data.leagues[leagueId] = {
       ...league,
       teams: updatedTeams,
-      teamNames: teamNames,
+      teamNames
     };
+
     writeJsonFile(FILES.leagues, data);
     syncLeaguesToGitHub();
-  
-    io.emit('updateDraft', {
+
+    io.to(leagueId).emit('updateDraft', {
       leagueId,
       teams: updatedTeams,
       sortedPlayers: updatedSortedPlayers,
-      currentTeam: draftComplete ? null : nextTeam,
+      currentTeam: nextTeam,
       snakeDirection: nextSnake,
-      draftComplete,
+      draftComplete
     });
   });
-  
+
+  socket.on('disconnect', () => {
+    console.log('🔴 User disconnected');
+  });
 });
 
 
