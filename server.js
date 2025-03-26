@@ -232,27 +232,52 @@ io.on('connection', socket => {
   });
 
   // Handle a draft pick
-  socket.on('draft-pick', ({ leagueId, teamIndex, player }) => {
+  socket.on('draftPlayer', ({ leagueId, player, currentTeam, sortedPlayers, teams, teamNames, snakeDirection }) => {
     const data = readJsonFile(FILES.leagues, { leagues: {} });
-    if (!data.leagues[leagueId]) return;
-
-    // Add player to team and remove from remaining pool (optional logic)
-    data.leagues[leagueId].teams[teamIndex].push(player);
-
-    // Save and broadcast
+    const league = data.leagues[leagueId];
+    if (!league) return;
+  
+    const updatedTeams = [...teams];
+    const updatedSortedPlayers = sortedPlayers.filter(p => p.id !== player.id);
+    updatedTeams[currentTeam] = [...updatedTeams[currentTeam], player];
+  
+    // Check if all teams are full (6 players each)
+    const draftComplete = updatedTeams.every(team => team.length === 6);
+  
+    let nextTeam = currentTeam;
+    let nextSnake = snakeDirection;
+    if (!draftComplete) {
+      const tentativeNext = currentTeam + snakeDirection;
+      if (tentativeNext >= updatedTeams.length) {
+        nextTeam = updatedTeams.length - 1;
+        nextSnake = -1;
+      } else if (tentativeNext < 0) {
+        nextTeam = 0;
+        nextSnake = 1;
+      } else {
+        nextTeam = tentativeNext;
+      }
+    }
+  
+    // Save changes to file
+    data.leagues[leagueId] = {
+      ...league,
+      teams: updatedTeams,
+      teamNames: teamNames,
+    };
     writeJsonFile(FILES.leagues, data);
     syncLeaguesToGitHub();
-
-    // Broadcast full league state to all clients in that room
-    io.to(leagueId).emit('league-state', {
+  
+    io.emit('updateDraft', {
       leagueId,
-      state: data.leagues[leagueId]
+      teams: updatedTeams,
+      sortedPlayers: updatedSortedPlayers,
+      currentTeam: draftComplete ? null : nextTeam,
+      snakeDirection: nextSnake,
+      draftComplete,
     });
   });
-
-  socket.on('disconnect', () => {
-    console.log('🔴 User disconnected');
-  });
+  
 });
 
 
