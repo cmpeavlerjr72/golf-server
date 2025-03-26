@@ -215,8 +215,25 @@ app.post('/update-data', async (req, res) => {
 });
 
 // Real-time Draft Events
-io.on('connection', (socket) => {
+o.on('connection', (socket) => {
   console.log('🟢 New user connected:', socket.id);
+
+  socket.on('start-draft', ({ leagueId }) => {
+    console.log(`Starting new draft for league ${leagueId}`);
+    // Clear team ownership
+    if (teamOwners[leagueId]) {
+      delete teamOwners[leagueId];
+    }
+    // Reset teams in the league
+    const data = readJsonFile(FILES.leagues, { leagues: {} });
+    if (data.leagues[leagueId]) {
+      data.leagues[leagueId].teams = data.leagues[leagueId].teams.map(() => []);
+      writeJsonFile(FILES.leagues, data);
+      syncLeaguesToGitHub();
+    }
+    // Notify all clients in the league to reset
+    io.emit('draft-reset', { leagueId });
+  });
 
   socket.on('assign-team', ({ leagueId, teamIndex }) => {
     if (!teamOwners[leagueId]) teamOwners[leagueId] = {};
@@ -250,7 +267,6 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     console.log('🔴 User disconnected:', socket.id);
-    // Optionally clear team ownership on disconnect
     for (const leagueId in teamOwners) {
       for (const teamIndex in teamOwners[leagueId]) {
         if (teamOwners[leagueId][teamIndex] === socket.id) {
