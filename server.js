@@ -4,8 +4,15 @@ import fs from 'fs';
 import fetch from 'node-fetch';
 import cors from 'cors';
 import bodyParser from 'body-parser';
+import { Server } from 'socket.io';
+import http from 'http';
 
 const app = express();
+const server = http.createServer(app); // Create HTTP server
+const io = new Server(server, {
+  cors: { origin: '*' }
+});
+
 const PORT = process.env.PORT || 5000;
 
 // Middleware
@@ -34,19 +41,18 @@ let lastFieldUpdate = null;
 const getEasternTime = () => {
   const now = new Date();
   const estOffset = -5;
-  const estTime = new Date(now.getTime() + estOffset * 60 * 60 * 1000);
-  return estTime.toISOString();
+  return new Date(now.getTime() + estOffset * 60 * 60 * 1000).toISOString();
 };
 
-// File helpers
+// JSON File Helpers
 const readJsonFile = (filePath, defaultValue = {}) => {
   try {
     if (!fs.existsSync(filePath)) {
       fs.writeFileSync(filePath, JSON.stringify(defaultValue, null, 2));
     }
     return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-  } catch (error) {
-    console.error(`Error reading ${filePath}:`, error.message);
+  } catch (err) {
+    console.error(`Error reading ${filePath}:`, err.message);
     return defaultValue;
   }
 };
@@ -55,56 +61,56 @@ const writeJsonFile = (filePath, data) => {
   try {
     fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
     console.log(`${filePath} updated successfully.`);
-  } catch (error) {
-    console.error(`Error writing to ${filePath}:`, error.message);
+  } catch (err) {
+    console.error(`Error writing to ${filePath}:`, err.message);
   }
 };
 
-// GitHub sync helpers
+// GitHub Sync Helpers
 const syncLeaguesToGitHub = async () => {
   const leagues = readJsonFile(FILES.leagues, { leagues: {} });
   try {
     const current = await fetch(GITHUB_API_URL, {
-      headers: { Authorization: `Bearer ${GITHUB_TOKEN}` },
+      headers: { Authorization: `Bearer ${GITHUB_TOKEN}` }
     }).then(res => res.json());
 
     const res = await fetch(GITHUB_API_URL, {
       method: 'PUT',
       headers: {
         Authorization: `Bearer ${GITHUB_TOKEN}`,
-        'Content-Type': 'application/json',
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({
         message: 'Sync leagues.json from Render',
         content: Buffer.from(JSON.stringify(leagues, null, 2)).toString('base64'),
-        sha: current.sha,
-      }),
+        sha: current.sha
+      })
     });
 
     if (!res.ok) throw new Error(`GitHub sync failed: ${res.status}`);
     console.log('✅ Synced leagues.json to GitHub');
   } catch (err) {
-    console.error('❌ Error syncing leagues.json to GitHub:', err.message);
+    console.error('❌ GitHub sync error:', err.message);
   }
 };
 
 const restoreLeaguesFromGitHub = async () => {
   try {
-    const response = await fetch(GITHUB_API_URL, {
-      headers: { Authorization: `Bearer ${GITHUB_TOKEN}` },
+    const res = await fetch(GITHUB_API_URL, {
+      headers: { Authorization: `Bearer ${GITHUB_TOKEN}` }
     });
-    if (!response.ok) throw new Error(`GitHub fetch failed: ${response.status}`);
 
-    const data = await response.json();
+    if (!res.ok) throw new Error(`GitHub fetch failed: ${res.status}`);
+    const data = await res.json();
     const decoded = Buffer.from(data.content, 'base64').toString('utf-8');
     writeJsonFile(FILES.leagues, JSON.parse(decoded));
     console.log('✅ Restored leagues.json from GitHub');
   } catch (err) {
-    console.error('❌ Failed to restore leagues.json from GitHub:', err.message);
+    console.error('❌ Failed to restore leagues.json:', err.message);
   }
 };
 
-// Data fetch functions
+// Data Update Functions
 const updateHoleByHole = async () => {
   const url = `https://feeds.datagolf.com/preds/live-hole-scores?file_format=json&key=${process.env.DATAGOLF_API_KEY}`;
   try {
@@ -141,13 +147,13 @@ const updateFieldList = async () => {
   }
 };
 
-// Data routes
+// Static API Routes
 app.get('/live-stats', (req, res) => res.json(readJsonFile(FILES.liveStats, [])));
 app.get('/field', (req, res) => res.json(readJsonFile(FILES.fieldList, [])));
 app.get('/rankings', (req, res) => res.json(readJsonFile(FILES.rankings, [])));
 app.get('/holes', (req, res) => res.json(readJsonFile(FILES.holeByHole, [])));
 
-// League routes
+// League API Routes
 app.get('/leagues', (req, res) => {
   const data = readJsonFile(FILES.leagues, { leagues: {} });
   res.json(data.leagues);
@@ -209,9 +215,28 @@ app.post('/update-data', async (req, res) => {
   }
 });
 
-// Restore leagues from GitHub on startup
-restoreLeaguesFromGitHub();
+// Real-time Draft Events
+io.on('connection', socket => {
+  console.log('🟢 New user connected');
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server is running on http://0.0.0.0:${PORT}`);
+  socket.on('draft-pick', ({ leagueId, teamIndex, player }) => {
+    const data = readJsonFile(FILES.leagues, { leagues: {} });
+    if (!data.leagues[leagueId]) return;
+
+    data.leagues[leagueId].teams[teamIndex].push(player);
+    writeJsonFile(FILES.leagues, data);
+    syncLeaguesToGitHub();
+
+    io.emit('draft-update', { leagueId, teamIndex, player });
+  });
+
+  socket.on('disconnect', () => {
+    console.log('🔴 User disconnected');
+  });
+});
+
+// Restore on startup and start server
+restoreLeaguesFromGitHub();
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Server running on http://0.0.0.0:${PORT}`);
 });
