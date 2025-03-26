@@ -8,7 +8,7 @@ import { Server } from 'socket.io';
 import http from 'http';
 
 const app = express();
-const server = http.createServer(app); // Create HTTP server
+const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: '*' }
 });
@@ -37,14 +37,12 @@ const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 let lastUpdateTime = null;
 let lastFieldUpdate = null;
 
-// Time helper
 const getEasternTime = () => {
   const now = new Date();
   const estOffset = -5;
   return new Date(now.getTime() + estOffset * 60 * 60 * 1000).toISOString();
 };
 
-// JSON File Helpers
 const readJsonFile = (filePath, defaultValue = {}) => {
   try {
     if (!fs.existsSync(filePath)) {
@@ -66,7 +64,6 @@ const writeJsonFile = (filePath, data) => {
   }
 };
 
-// GitHub Sync Helpers
 const syncLeaguesToGitHub = async () => {
   const leagues = readJsonFile(FILES.leagues, { leagues: {} });
   try {
@@ -110,7 +107,7 @@ const restoreLeaguesFromGitHub = async () => {
   }
 };
 
-// Data Update Functions
+// Data update functions
 const updateHoleByHole = async () => {
   const url = `https://feeds.datagolf.com/preds/live-hole-scores?file_format=json&key=${process.env.DATAGOLF_API_KEY}`;
   try {
@@ -147,13 +144,12 @@ const updateFieldList = async () => {
   }
 };
 
-// Static API Routes
+// API routes
 app.get('/live-stats', (req, res) => res.json(readJsonFile(FILES.liveStats, [])));
 app.get('/field', (req, res) => res.json(readJsonFile(FILES.fieldList, [])));
 app.get('/rankings', (req, res) => res.json(readJsonFile(FILES.rankings, [])));
 app.get('/holes', (req, res) => res.json(readJsonFile(FILES.holeByHole, [])));
 
-// League API Routes
 app.get('/leagues', (req, res) => {
   const data = readJsonFile(FILES.leagues, { leagues: {} });
   res.json(data.leagues);
@@ -219,78 +215,15 @@ app.post('/update-data', async (req, res) => {
 io.on('connection', socket => {
   console.log('🟢 New user connected');
 
-  socket.on('join-league', (leagueId) => {
+  socket.on('draft-pick', ({ leagueId, teamIndex, player }) => {
     const data = readJsonFile(FILES.leagues, { leagues: {} });
-    if (data.leagues[leagueId]) {
-      socket.join(leagueId);
-      socket.emit('league-state', {
-        leagueId,
-        state: data.leagues[leagueId]
-      });
-    }
-  });
+    if (!data.leagues[leagueId]) return;
 
-  socket.on('draftPlayer', ({ leagueId, player, currentTeam, teamIndex, sortedPlayers, teams, teamNames, snakeDirection }) => {
-    const data = readJsonFile(FILES.leagues, { leagues: {} });
-    const league = data.leagues[leagueId];
-    if (!league) return;
-
-    // Make sure it's the right team's turn
-    if (currentTeam !== teamIndex) {
-      console.warn(`Team ${teamIndex} attempted pick out of turn.`);
-      return;
-    }
-
-    // Prevent duplicate drafting
-    const playerAlreadyDrafted = league.teams.some(team =>
-      team.find(p => p.id === player.id)
-    );
-    if (playerAlreadyDrafted) {
-      console.warn(`Duplicate draft attempt for ${player.name}`);
-      return;
-    }
-
-    const updatedTeams = [...teams];
-    updatedTeams[teamIndex] = [...updatedTeams[teamIndex], player];
-
-    const updatedSortedPlayers = sortedPlayers.filter(p => p.id !== player.id);
-    const draftComplete = updatedTeams.every(team => team.length === 6);
-
-    let nextTeam = teamIndex;
-    let nextSnake = snakeDirection;
-
-    if (!draftComplete) {
-      const tentativeNext = teamIndex + snakeDirection;
-      if (tentativeNext >= updatedTeams.length) {
-        nextTeam = updatedTeams.length - 1;
-        nextSnake = -1;
-      } else if (tentativeNext < 0) {
-        nextTeam = 0;
-        nextSnake = 1;
-      } else {
-        nextTeam = tentativeNext;
-      }
-    } else {
-      nextTeam = null;
-    }
-
-    data.leagues[leagueId] = {
-      ...league,
-      teams: updatedTeams,
-      teamNames
-    };
-
+    data.leagues[leagueId].teams[teamIndex].push(player);
     writeJsonFile(FILES.leagues, data);
     syncLeaguesToGitHub();
 
-    io.to(leagueId).emit('updateDraft', {
-      leagueId,
-      teams: updatedTeams,
-      sortedPlayers: updatedSortedPlayers,
-      currentTeam: nextTeam,
-      snakeDirection: nextSnake,
-      draftComplete
-    });
+    io.emit('draft-update', { leagueId, teamIndex, player });
   });
 
   socket.on('disconnect', () => {
@@ -298,8 +231,7 @@ io.on('connection', socket => {
   });
 });
 
-
-// Restore on startup and start server
+// Restore leagues and start
 restoreLeaguesFromGitHub();
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server running on http://0.0.0.0:${PORT}`);
