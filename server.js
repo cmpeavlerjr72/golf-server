@@ -215,7 +215,7 @@ app.post('/update-data', async (req, res) => {
 });
 
 // Real-time Draft Events
-o.on('connection', (socket) => {
+io.on('connection', (socket) => {
   console.log('🟢 New user connected:', socket.id);
 
   socket.on('start-draft', ({ leagueId }) => {
