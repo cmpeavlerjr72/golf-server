@@ -219,21 +219,42 @@ app.post('/update-data', async (req, res) => {
 io.on('connection', socket => {
   console.log('🟢 New user connected');
 
+  // Send full league state on connection (optional)
+  socket.on('join-league', (leagueId) => {
+    const data = readJsonFile(FILES.leagues, { leagues: {} });
+    if (data.leagues[leagueId]) {
+      socket.join(leagueId); // Join the Socket.IO room
+      socket.emit('league-state', {
+        leagueId,
+        state: data.leagues[leagueId]
+      });
+    }
+  });
+
+  // Handle a draft pick
   socket.on('draft-pick', ({ leagueId, teamIndex, player }) => {
     const data = readJsonFile(FILES.leagues, { leagues: {} });
     if (!data.leagues[leagueId]) return;
 
+    // Add player to team and remove from remaining pool (optional logic)
     data.leagues[leagueId].teams[teamIndex].push(player);
+
+    // Save and broadcast
     writeJsonFile(FILES.leagues, data);
     syncLeaguesToGitHub();
 
-    io.emit('draft-update', { leagueId, teamIndex, player });
+    // Broadcast full league state to all clients in that room
+    io.to(leagueId).emit('league-state', {
+      leagueId,
+      state: data.leagues[leagueId]
+    });
   });
 
   socket.on('disconnect', () => {
     console.log('🔴 User disconnected');
   });
 });
+
 
 // Restore on startup and start server
 restoreLeaguesFromGitHub();
