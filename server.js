@@ -10,7 +10,7 @@ import http from 'http';
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: '*' }
+  cors: { origin: '*' },
 });
 
 const PORT = process.env.PORT || 5000;
@@ -58,7 +58,7 @@ const readJsonFile = (filePath, defaultValue = {}) => {
 const writeJsonFile = (filePath, data) => {
   try {
     fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-    console.log(`${filePath} updated successfully.`);
+    console.log(`${filePath} updated successfully`);
   } catch (err) {
     console.error(`Error writing to ${filePath}:`, err.message);
   }
@@ -68,20 +68,20 @@ const syncLeaguesToGitHub = async () => {
   const leagues = readJsonFile(FILES.leagues, { leagues: {} });
   try {
     const current = await fetch(GITHUB_API_URL, {
-      headers: { Authorization: `Bearer ${GITHUB_TOKEN}` }
-    }).then(res => res.json());
+      headers: { Authorization: `Bearer ${GITHUB_TOKEN}` },
+    }).then((res) => res.json());
 
     const res = await fetch(GITHUB_API_URL, {
       method: 'PUT',
       headers: {
         Authorization: `Bearer ${GITHUB_TOKEN}`,
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify({
         message: 'Sync leagues.json from Render',
         content: Buffer.from(JSON.stringify(leagues, null, 2)).toString('base64'),
-        sha: current.sha
-      })
+        sha: current.sha,
+      }),
     });
 
     if (!res.ok) throw new Error(`GitHub sync failed: ${res.status}`);
@@ -94,7 +94,7 @@ const syncLeaguesToGitHub = async () => {
 const restoreLeaguesFromGitHub = async () => {
   try {
     const res = await fetch(GITHUB_API_URL, {
-      headers: { Authorization: `Bearer ${GITHUB_TOKEN}` }
+      headers: { Authorization: `Bearer ${GITHUB_TOKEN}` },
     });
 
     if (!res.ok) throw new Error(`GitHub fetch failed: ${res.status}`);
@@ -212,22 +212,27 @@ app.post('/update-data', async (req, res) => {
 });
 
 // Real-time Draft Events
-io.on('connection', socket => {
-  console.log('🟢 New user connected');
+io.on('connection', (socket) => {
+  console.log('🟢 New user connected:', socket.id);
 
   socket.on('draft-pick', ({ leagueId, teamIndex, player }) => {
+    console.log(`Received draft-pick: leagueId=${leagueId}, teamIndex=${teamIndex}, player=${player.name}`);
     const data = readJsonFile(FILES.leagues, { leagues: {} });
-    if (!data.leagues[leagueId]) return;
+    if (!data.leagues[leagueId]) {
+      console.log(`League ${leagueId} not found`);
+      return;
+    }
 
     data.leagues[leagueId].teams[teamIndex].push(player);
     writeJsonFile(FILES.leagues, data);
     syncLeaguesToGitHub();
 
+    console.log(`Broadcasting draft-update: leagueId=${leagueId}, teamIndex=${teamIndex}, player=${player.name}`);
     io.emit('draft-update', { leagueId, teamIndex, player });
   });
 
   socket.on('disconnect', () => {
-    console.log('🔴 User disconnected');
+    console.log('🔴 User disconnected:', socket.id);
   });
 });
 
