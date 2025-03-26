@@ -14,7 +14,8 @@ const io = new Server(server, {
 });
 
 // Track team ownership: { leagueId: { teamIndex: socket.id } }
-const teamOwners = {};
+let teamOwners = {};
+let activeClients = {}; // Track active clients per league: { leagueId: Set<socket.id> }
 
 const PORT = process.env.PORT || 5000;
 
@@ -218,6 +219,41 @@ app.post('/update-data', async (req, res) => {
 io.on('connection', (socket) => {
   console.log('🟢 New user connected:', socket.id);
 
+  socket.on('join-draft', ({ leagueId }) => {
+    // Initialize active clients for this league if not already set
+    if (!activeClients[leagueId]) {
+      activeClients[leagueId] = new Set();
+    }
+
+    // Add the client to the active clients set
+    activeClients[leagueId].add(socket.id);
+    console.log(`Client ${socket.id} joined league ${leagueId}. Active clients: ${activeClients[leagueId].size}`);
+
+    // Read league data to check draft status
+    const data = readJsonFile(FILES.leagues, { leagues: {} });
+    const draftComplete = data.leagues[leagueId]?.teams?.every((t) => t.length === 6) || false;
+
+    // If this is the first client and the draft isn't complete, reset team assignments
+    if (activeClients[leagueId].size === 1 && !draftComplete) {
+      console.log(`First client joined league ${leagueId}. Resetting team assignments.`);
+      if (teamOwners[leagueId]) {
+        delete teamOwners[leagueId];
+      }
+      if (data.leagues[leagueId]) {
+        data.leagues[leagueId].teams = data.leagues[leagueId].teams.map(() => []);
+        writeJsonFile(FILES.leagues, data);
+        syncLeaguesToGitHub();
+      }
+      io.emit('draft-reset', { leagueId });
+    }
+
+    // Inform the client of the draft status
+    socket.emit('draft-status', {
+      isFirstClient: activeClients[leagueId].size === 1,
+      draftComplete,
+    });
+  });
+
   socket.on('start-draft', ({ leagueId }) => {
     console.log(`Starting new draft for league ${leagueId}`);
     // Clear team ownership
@@ -236,6 +272,15 @@ io.on('connection', (socket) => {
   });
 
   socket.on('assign-team', ({ leagueId, teamIndex }) => {
+    // Check if the draft is complete
+    const data = readJsonFile(FILES.leagues, { leagues: {} });
+    const draftComplete = data.leagues[leagueId]?.teams?.every((t) => t.length === 6) || false;
+
+    if (draftComplete) {
+      socket.emit('team-assigned', { success: false, message: 'Draft is already complete. You cannot change teams.' });
+      return;
+    }
+
     if (!teamOwners[leagueId]) teamOwners[leagueId] = {};
     if (!teamOwners[leagueId][teamIndex] || teamOwners[leagueId][teamIndex] === socket.id) {
       teamOwners[leagueId][teamIndex] = socket.id;
@@ -267,6 +312,24 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     console.log('🔴 User disconnected:', socket.id);
+    // Remove the client from active clients
+    for (const leagueId in activeClients) {
+      if (activeClients[leagueId].has(socket.id)) {
+        activeClients[leagueId].delete(socket.id);
+        console.log(`Client ${socket.id} left league ${leagueId}. Active clients: ${activeClients[leagueId].size}`);
+        // If no clients remain, clean up
+        if (activeClients[leagueId].size === 0) {
+          delete activeClients[leagueId];
+          // Clear teamOwners if draft is not complete
+          const data = readJsonFile(FILES.leagues, { leagues: {} });
+          const draftComplete = data.leagues[leagueId]?.teams?.every((t) => t.length === 6) || false;
+          if (!draftComplete) {
+            delete teamOwners[leagueId];
+          }
+        }
+      }
+    }
+    // Remove the client from teamOwners
     for (const leagueId in teamOwners) {
       for (const teamIndex in teamOwners[leagueId]) {
         if (teamOwners[leagueId][teamIndex] === socket.id) {
