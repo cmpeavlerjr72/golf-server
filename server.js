@@ -61,6 +61,7 @@ const writeJsonFile = (filePath, data) => {
     console.log(`${filePath} updated successfully`);
   } catch (err) {
     console.error(`Error writing to ${filePath}:`, err.message);
+    throw err;
   }
 };
 
@@ -134,7 +135,6 @@ const fetchPlayers = async () => {
     return players;
   } catch (err) {
     console.error('Error fetching players:', err.message);
-    // Fallback to a hardcoded list if API fails
     return [
       { id: 12345, name: 'Scheffler, Scottie', owgr_rank: 1, dg_rank: 1 },
       { id: 67890, name: 'McIlroy, Rory', owgr_rank: 2, dg_rank: 2 },
@@ -211,7 +211,8 @@ app.post('/leagues', async (req, res) => {
       return res.status(500).json({ error: 'Failed to fetch player data. Cannot create league.' });
     }
     console.log('Creating league with availablePlayers:', availablePlayers.map(p => ({ id: p.id, name: p.name })));
-    data.leagues[nextId] = {
+
+    const newLeague = {
       teams: teams || Array(teamNames.length).fill().map(() => []),
       teamNames: teamNames || [],
       availablePlayers: availablePlayers,
@@ -221,7 +222,11 @@ app.post('/leagues', async (req, res) => {
       draftComplete: false,
       teamOwners: {},
     };
+    data.leagues[nextId] = newLeague;
+
     writeJsonFile(FILES.leagues, data);
+    const updatedData = readJsonFile(FILES.leagues, { leagues: {} });
+    console.log('After writing, availablePlayers in leagues.json:', updatedData.leagues[nextId].availablePlayers.map(p => ({ id: p.id, name: p.name })));
     syncLeaguesToGitHub();
     res.status(201).json({ leagueId: nextId });
   } catch (err) {
@@ -277,7 +282,8 @@ io.on('connection', (socket) => {
       return;
     }
 
-    // If availablePlayers is empty (shouldn't happen), fetch players as a fallback
+    console.log(`Initial availablePlayers for league ${leagueId}:`, league.availablePlayers ? league.availablePlayers.map(p => ({ id: p.id, name: p.name })) : 'empty');
+
     if (!league.availablePlayers || league.availablePlayers.length === 0) {
       console.warn(`availablePlayers is empty for league ${leagueId}, fetching players as fallback`);
       const fetchedPlayers = await fetchPlayers();
@@ -289,12 +295,13 @@ io.on('connection', (socket) => {
       console.log('Fetched availablePlayers:', league.availablePlayers.map(p => ({ id: p.id, name: p.name })));
       data.leagues[leagueId] = league;
       writeJsonFile(FILES.leagues, data);
+      const updatedData = readJsonFile(FILES.leagues, { leagues: {} });
+      console.log('After writing in join-draft, availablePlayers in leagues.json:', updatedData.leagues[leagueId].availablePlayers.map(p => ({ id: p.id, name: p.name })));
       syncLeaguesToGitHub();
     } else {
       console.log('Existing availablePlayers:', league.availablePlayers.map(p => ({ id: p.id, name: p.name })));
     }
 
-    // If teams are not initialized, set them up
     if (!league.teams || league.teams.length === 0) {
       league.teams = Array(league.teamNames.length).fill().map(() => []);
       data.leagues[leagueId] = league;
@@ -302,7 +309,6 @@ io.on('connection', (socket) => {
       syncLeaguesToGitHub();
     }
 
-    // Send the current draft state to the joining client
     socket.emit('draft-status', {
       teams: league.teams,
       teamNames: league.teamNames,
@@ -347,13 +353,19 @@ io.on('connection', (socket) => {
     if (!league || league.isDrafting) return;
 
     console.log(`Starting draft for league ${leagueId}`);
+    console.log('Before starting draft, availablePlayers:', league.availablePlayers.map(p => ({ id: p.id, name: p.name })));
+
     league.isDrafting = true;
     league.currentTeamIndex = 0;
     league.snakeDirection = 1;
     league.draftComplete = false;
     league.teams = Array(league.teamNames.length).fill().map(() => []);
+
+    console.log('After setting draft state, availablePlayers:', league.availablePlayers.map(p => ({ id: p.id, name: p.name })));
     data.leagues[leagueId] = league;
     writeJsonFile(FILES.leagues, data);
+    const updatedData = readJsonFile(FILES.leagues, { leagues: {} });
+    console.log('After writing in start-draft, availablePlayers in leagues.json:', updatedData.leagues[leagueId].availablePlayers.map(p => ({ id: p.id, name: p.name })));
     syncLeaguesToGitHub();
 
     io.emit('draft-update', {
@@ -378,15 +390,17 @@ io.on('connection', (socket) => {
     }
 
     console.log('Player being drafted:', player);
-    console.log('Available players in draft-pick:', league.availablePlayers.map(p => ({ id: p.id, name: p.name })));
-    if (!league.availablePlayers.some(p => p.id === player.id)) {
+    console.log('Player ID being drafted:', player.id, 'Type:', typeof player.id);
+    console.log('Available players in draft-pick:', league.availablePlayers.map(p => ({ id: p.id, name: p.name, idType: typeof p.id })));
+    if (!league.availablePlayers.some(p => String(p.id) === String(player.id))) {
       console.log(`Rejected pick: Player ${player.name} is not available`);
+      console.log('Available player IDs:', league.availablePlayers.map(p => p.id));
       return;
     }
 
     console.log(`Received draft-pick: leagueId=${leagueId}, teamIndex=${teamIndex}, player=${player.name}`);
     league.teams[teamIndex].push(player);
-    league.availablePlayers = league.availablePlayers.filter(p => p.id !== player.id);
+    league.availablePlayers = league.availablePlayers.filter(p => String(p.id) !== String(player.id));
 
     let nextTeamIndex = league.currentTeamIndex + league.snakeDirection;
     if (nextTeamIndex >= league.teamNames.length) {
