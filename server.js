@@ -108,16 +108,22 @@ const restoreLeaguesFromGitHub = async () => {
   }
 };
 
-// Fetch player data with fallback
+// Fetch player data
 const fetchPlayers = async () => {
   try {
     const fieldResponse = await fetch(`https://feeds.datagolf.com/field-updates?tour=pga&file_format=json&key=${process.env.DATAGOLF_API_KEY}`);
-    if (!fieldResponse.ok) throw new Error(`Field API request failed: ${fieldResponse.status}`);
+    if (!fieldResponse.ok) {
+      const errorText = await fieldResponse.text();
+      throw new Error(`Field API request failed: ${fieldResponse.status} - ${errorText}`);
+    }
     const fieldData = await fieldResponse.json();
     console.log('Field API response:', fieldData);
 
     const rankingsResponse = await fetch(`https://feeds.datagolf.com/preds/dg-rankings?file_format=json&key=${process.env.DATAGOLF_API_KEY}`);
-    if (!rankingsResponse.ok) throw new Error(`Rankings API request failed: ${rankingsResponse.status}`);
+    if (!rankingsResponse.ok) {
+      const errorText = await rankingsResponse.text();
+      throw new Error(`Rankings API request failed: ${rankingsResponse.status} - ${errorText}`);
+    }
     const rankingsData = await rankingsResponse.json();
     console.log('Rankings API response:', rankingsData);
 
@@ -135,13 +141,7 @@ const fetchPlayers = async () => {
     return players;
   } catch (err) {
     console.error('Error fetching players:', err.message);
-    return [
-      { id: 12345, name: 'Scheffler, Scottie', owgr_rank: 1, dg_rank: 1 },
-      { id: 67890, name: 'McIlroy, Rory', owgr_rank: 2, dg_rank: 2 },
-      { id: 54321, name: 'Rahm, Jon', owgr_rank: 3, dg_rank: 3 },
-      { id: 98765, name: 'Thomas, Justin', owgr_rank: 4, dg_rank: 4 },
-      { id: 45678, name: 'Spieth, Jordan', owgr_rank: 5, dg_rank: 5 },
-    ];
+    throw err;
   }
 };
 
@@ -206,10 +206,6 @@ app.post('/leagues', async (req, res) => {
     const { teams, teamNames } = req.body;
     const nextId = Math.max(0, ...Object.keys(data.leagues).map(Number)) + 1;
     const availablePlayers = await fetchPlayers();
-    if (availablePlayers.length === 0) {
-      console.error('Failed to fetch players during league creation');
-      return res.status(500).json({ error: 'Failed to fetch player data. Cannot create league.' });
-    }
     console.log('Creating league with availablePlayers:', availablePlayers.map(p => ({ id: p.id, name: p.name })));
 
     const newLeague = {
@@ -231,7 +227,7 @@ app.post('/leagues', async (req, res) => {
     res.status(201).json({ leagueId: nextId });
   } catch (err) {
     console.error('Error creating league:', err.message);
-    res.status(500).json({ error: 'Failed to create league' });
+    res.status(500).json({ error: 'Failed to create league: ' + err.message });
   }
 });
 
@@ -285,19 +281,21 @@ io.on('connection', (socket) => {
     console.log(`Initial availablePlayers for league ${leagueId}:`, league.availablePlayers ? league.availablePlayers.map(p => ({ id: p.id, name: p.name })) : 'empty');
 
     if (!league.availablePlayers || league.availablePlayers.length === 0) {
-      console.warn(`availablePlayers is empty for league ${leagueId}, fetching players as fallback`);
-      const fetchedPlayers = await fetchPlayers();
-      if (fetchedPlayers.length === 0) {
-        socket.emit('draft-status', { error: 'Failed to fetch player data. Please try again later.' });
+      console.warn(`availablePlayers is empty for league ${leagueId}, fetching players`);
+      try {
+        const fetchedPlayers = await fetchPlayers();
+        league.availablePlayers = fetchedPlayers;
+        console.log('Fetched availablePlayers:', league.availablePlayers.map(p => ({ id: p.id, name: p.name })));
+        data.leagues[leagueId] = league;
+        writeJsonFile(FILES.leagues, data);
+        const updatedData = readJsonFile(FILES.leagues, { leagues: {} });
+        console.log('After writing in join-draft, availablePlayers in leagues.json:', updatedData.leagues[leagueId].availablePlayers.map(p => ({ id: p.id, name: p.name })));
+        syncLeaguesToGitHub();
+      } catch (err) {
+        console.error('Failed to fetch players in join-draft:', err.message);
+        socket.emit('draft-status', { error: 'Failed to fetch player data: ' + err.message });
         return;
       }
-      league.availablePlayers = fetchedPlayers;
-      console.log('Fetched availablePlayers:', league.availablePlayers.map(p => ({ id: p.id, name: p.name })));
-      data.leagues[leagueId] = league;
-      writeJsonFile(FILES.leagues, data);
-      const updatedData = readJsonFile(FILES.leagues, { leagues: {} });
-      console.log('After writing in join-draft, availablePlayers in leagues.json:', updatedData.leagues[leagueId].availablePlayers.map(p => ({ id: p.id, name: p.name })));
-      syncLeaguesToGitHub();
     } else {
       console.log('Existing availablePlayers:', league.availablePlayers.map(p => ({ id: p.id, name: p.name })));
     }
