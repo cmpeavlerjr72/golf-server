@@ -15,9 +15,6 @@ const io = new Server(server, {
 
 const PORT = process.env.PORT || 5000;
 
-// In-memory cache for league data
-const leagueCache = new Map();
-
 // Middleware
 app.use(cors());
 app.use(bodyParser.json());
@@ -39,6 +36,8 @@ const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 
 let lastUpdateTime = null;
 let lastFieldUpdate = null;
+let lastSyncTime = null;
+const SYNC_INTERVAL = 60000; // Sync every 60 seconds at most
 
 const getEasternTime = () => {
   const now = new Date();
@@ -69,6 +68,12 @@ const writeJsonFile = (filePath, data) => {
 };
 
 const syncLeaguesToGitHub = async () => {
+  const now = new Date();
+  if (lastSyncTime && (now - lastSyncTime) < SYNC_INTERVAL) {
+    console.log('Skipping GitHub sync due to rate limiting');
+    return;
+  }
+
   const leagues = readJsonFile(FILES.leagues, { leagues: {} });
   try {
     const current = await fetch(GITHUB_API_URL, {
@@ -90,6 +95,7 @@ const syncLeaguesToGitHub = async () => {
 
     if (!res.ok) throw new Error(`GitHub sync failed: ${res.status}`);
     console.log('✅ Synced leagues.json to GitHub');
+    lastSyncTime = now;
   } catch (err) {
     console.error('❌ GitHub sync error:', err.message);
   }
@@ -114,9 +120,17 @@ const restoreLeaguesFromGitHub = async () => {
 // Fetch players from the server's /field and /rankings endpoints
 const getPlayersFromServer = async () => {
   try {
-    // Read directly from the JSON files for better performance
-    const fieldData = readJsonFile(FILES.fieldList, { field: [] });
-    const rankingsData = readJsonFile(FILES.rankings, { rankings: [] });
+    let fieldData = readJsonFile(FILES.fieldList, { field: [] });
+    let rankingsData = readJsonFile(FILES.rankings, { rankings: [] });
+
+    // If data is missing or empty, trigger an update
+    if (!fieldData.field || fieldData.field.length === 0 || !rankingsData.rankings || rankingsData.rankings.length === 0) {
+      console.log('Field or rankings data is missing, updating...');
+      await updateFieldList();
+      await updateRankings();
+      fieldData = readJsonFile(FILES.fieldList, { field: [] });
+      rankingsData = readJsonFile(FILES.rankings, { rankings: [] });
+    }
 
     const normalizeName = (name) => (name ? name.toLowerCase().trim() : '');
     const players = fieldData.field.map(p => {
@@ -218,7 +232,7 @@ app.post('/leagues', async (req, res) => {
     const newLeague = {
       teams: teams || Array(teamNames.length).fill().map(() => []),
       teamNames: teamNames || [],
-      availablePlayers: [], // Initialize as empty; we'll populate it in start-draft
+      availablePlayers: [],
       currentTeamIndex: 0,
       snakeDirection: 1,
       isDrafting: false,
@@ -229,7 +243,7 @@ app.post('/leagues', async (req, res) => {
 
     try {
       writeJsonFile(FILES.leagues, data);
-      // syncLeaguesToGitHub();
+      syncLeaguesToGitHub();
     } catch (err) {
       console.error('Failed to write league data in POST /leagues:', err.message);
       return res.status(500).json({ error: 'Failed to save league data.' });
@@ -250,7 +264,7 @@ app.put('/leagues/:id', (req, res) => {
     data.leagues[req.params.id] = { ...league, ...req.body };
     try {
       writeJsonFile(FILES.leagues, data);
-      // syncLeaguesToGitHub();
+      syncLeaguesToGitHub();
     } catch (err) {
       console.error('Failed to write league data in PUT /leagues:', err.message);
       return res.status(500).json({ error: 'Failed to update league data.' });
@@ -302,16 +316,13 @@ io.on('connection', (socket) => {
       data.leagues[leagueId] = league;
       try {
         writeJsonFile(FILES.leagues, data);
-        // syncLeaguesToGitHub();
+        syncLeaguesToGitHub();
       } catch (err) {
         console.error('Failed to write teams data in join-draft:', err.message);
         socket.emit('draft-status', { error: 'Failed to initialize teams on the server. Please try again.' });
         return;
       }
     }
-
-    // Cache the league data in memory
-    leagueCache.set(leagueId, { ...league });
 
     socket.emit('draft-status', {
       teams: league.teams,
@@ -325,18 +336,11 @@ io.on('connection', (socket) => {
   });
 
   socket.on('assign-team', ({ leagueId, teamIndex }) => {
-    let league = leagueCache.get(leagueId);
-    let data;
-
+    const data = readJsonFile(FILES.leagues, { leagues: {} });
+    const league = data.leagues[leagueId];
     if (!league) {
-      data = readJsonFile(FILES.leagues, { leagues: {} });
-      league = data.leagues[leagueId];
-      if (!league) {
-        socket.emit('team-assigned', { success: false, message: 'League not found.' });
-        return;
-      }
-    } else {
-      data = readJsonFile(FILES.leagues, { leagues: {} });
+      socket.emit('team-assigned', { success: false, message: 'League not found.' });
+      return;
     }
 
     if (league.draftComplete) {
@@ -350,13 +354,12 @@ io.on('connection', (socket) => {
       data.leagues[leagueId] = league;
       try {
         writeJsonFile(FILES.leagues, data);
-        // syncLeaguesToGitHub();
+        syncLeaguesToGitHub();
       } catch (err) {
         console.error('Failed to write league data in assign-team:', err.message);
         socket.emit('team-assigned', { success: false, message: 'Failed to assign team on the server.' });
         return;
       }
-      leagueCache.set(leagueId, { ...league });
       console.log(`Assigned team ${teamIndex} in league ${leagueId} to socket ${socket.id}`);
       socket.emit('team-assigned', { success: true, teamIndex });
     } else {
@@ -366,19 +369,21 @@ io.on('connection', (socket) => {
   });
 
   socket.on('start-draft', async ({ leagueId }) => {
-    let league = leagueCache.get(leagueId);
-    let data;
-
-    if (!league) {
-      data = readJsonFile(FILES.leagues, { leagues: {} });
-      league = data.leagues[leagueId];
-      if (!league || league.isDrafting) return;
-    } else {
-      data = readJsonFile(FILES.leagues, { leagues: {} });
-    }
+    const data = readJsonFile(FILES.leagues, { leagues: {} });
+    const league = data.leagues[leagueId];
+    if (!league || league.isDrafting) return;
 
     console.log(`Starting draft for league ${leagueId}`);
     console.log('Before starting draft, availablePlayers:', league.availablePlayers ? league.availablePlayers.map(p => ({ id: p.id, name: p.name })) : 'empty');
+
+    // Check if data is stale (e.g., older than 1 hour)
+    const currentTime = new Date();
+    if (!lastUpdateTime || (currentTime - new Date(lastUpdateTime)) / 1000 / 60 > 60) {
+      console.log('Data is stale, updating field and rankings...');
+      await updateFieldList();
+      await updateRankings();
+      lastUpdateTime = currentTime;
+    }
 
     // Initialize availablePlayers if not already set
     if (!league.availablePlayers || league.availablePlayers.length === 0) {
@@ -403,14 +408,10 @@ io.on('connection', (socket) => {
 
     try {
       writeJsonFile(FILES.leagues, data);
-      const updatedData = readJsonFile(FILES.leagues, { leagues: {} });
-      console.log('After writing in start-draft, availablePlayers in leagues.json:', updatedData.leagues[leagueId].availablePlayers.map(p => ({ id: p.id, name: p.name })));
-      // syncLeaguesToGitHub();
+      syncLeaguesToGitHub();
     } catch (err) {
       console.error('Failed to write updated league data in start-draft:', err.message);
     }
-
-    leagueCache.set(leagueId, { ...league });
 
     io.emit('draft-update', {
       leagueId,
@@ -424,16 +425,8 @@ io.on('connection', (socket) => {
   });
 
   socket.on('draft-pick', ({ leagueId, teamIndex, player }) => {
-    let league = leagueCache.get(leagueId);
-    let data;
-
-    if (!league) {
-      data = readJsonFile(FILES.leagues, { leagues: {} });
-      league = data.leagues[leagueId];
-      if (!league) return;
-    } else {
-      data = readJsonFile(FILES.leagues, { leagues: {} });
-    }
+    const data = readJsonFile(FILES.leagues, { leagues: {} });
+    const league = data.leagues[leagueId];
 
     if (!league || !league.isDrafting || league.draftComplete) return;
 
@@ -466,12 +459,10 @@ io.on('connection', (socket) => {
     league.currentTeamIndex = nextTeamIndex;
     league.draftComplete = league.teams.every(t => t.length === 6);
 
-    leagueCache.set(leagueId, { ...league });
-
     data.leagues[leagueId] = league;
     try {
       writeJsonFile(FILES.leagues, data);
-      // syncLeaguesToGitHub();
+      syncLeaguesToGitHub();
     } catch (err) {
       console.error('Failed to write updated league data in draft-pick:', err.message);
     }
@@ -500,12 +491,11 @@ io.on('connection', (socket) => {
           }
         }
         data.leagues[leagueId] = league;
-        leagueCache.set(leagueId, { ...league });
       }
     }
     try {
       writeJsonFile(FILES.leagues, data);
-      // syncLeaguesToGitHub();
+      syncLeaguesToGitHub();
     } catch (err) {
       console.error('Failed to write league data in disconnect:', err.message);
     }
