@@ -107,11 +107,19 @@ const restoreLeaguesFromGitHub = async () => {
   }
 };
 
-// Fetch player data
+// Fetch player data with fallback
 const fetchPlayers = async () => {
   try {
-    const fieldData = await fetch(`https://feeds.datagolf.com/field-updates?tour=pga&file_format=json&key=${process.env.DATAGOLF_API_KEY}`).then(res => res.json());
-    const rankingsData = await fetch(`https://feeds.datagolf.com/preds/dg-rankings?file_format=json&key=${process.env.DATAGOLF_API_KEY}`).then(res => res.json());
+    const fieldResponse = await fetch(`https://feeds.datagolf.com/field-updates?tour=pga&file_format=json&key=${process.env.DATAGOLF_API_KEY}`);
+    if (!fieldResponse.ok) throw new Error(`Field API request failed: ${fieldResponse.status}`);
+    const fieldData = await fieldResponse.json();
+    console.log('Field API response:', fieldData);
+
+    const rankingsResponse = await fetch(`https://feeds.datagolf.com/preds/dg-rankings?file_format=json&key=${process.env.DATAGOLF_API_KEY}`);
+    if (!rankingsResponse.ok) throw new Error(`Rankings API request failed: ${rankingsResponse.status}`);
+    const rankingsData = await rankingsResponse.json();
+    console.log('Rankings API response:', rankingsData);
+
     const normalizeName = (name) => (name ? name.toLowerCase().trim() : '');
     const players = fieldData.field.map(p => {
       const match = rankingsData.rankings.find(r => normalizeName(r.player_name) === normalizeName(p.player_name));
@@ -122,10 +130,18 @@ const fetchPlayers = async () => {
         dg_rank: match?.datagolf_rank || 1000,
       };
     });
+    console.log('Fetched players:', players.map(p => ({ id: p.id, name: p.name })));
     return players;
   } catch (err) {
     console.error('Error fetching players:', err.message);
-    return [];
+    // Fallback to a hardcoded list if API fails
+    return [
+      { id: 12345, name: 'Scheffler, Scottie', owgr_rank: 1, dg_rank: 1 },
+      { id: 67890, name: 'McIlroy, Rory', owgr_rank: 2, dg_rank: 2 },
+      { id: 54321, name: 'Rahm, Jon', owgr_rank: 3, dg_rank: 3 },
+      { id: 98765, name: 'Thomas, Justin', owgr_rank: 4, dg_rank: 4 },
+      { id: 45678, name: 'Spieth, Jordan', owgr_rank: 5, dg_rank: 5 },
+    ];
   }
 };
 
@@ -190,8 +206,13 @@ app.post('/leagues', async (req, res) => {
     const { teams, teamNames } = req.body;
     const nextId = Math.max(0, ...Object.keys(data.leagues).map(Number)) + 1;
     const availablePlayers = await fetchPlayers();
+    if (availablePlayers.length === 0) {
+      console.error('Failed to fetch players during league creation');
+      return res.status(500).json({ error: 'Failed to fetch player data. Cannot create league.' });
+    }
+    console.log('Creating league with availablePlayers:', availablePlayers.map(p => ({ id: p.id, name: p.name })));
     data.leagues[nextId] = {
-      teams: teams || [],
+      teams: teams || Array(teamNames.length).fill().map(() => []),
       teamNames: teamNames || [],
       availablePlayers: availablePlayers,
       currentTeamIndex: 0,
@@ -204,6 +225,7 @@ app.post('/leagues', async (req, res) => {
     syncLeaguesToGitHub();
     res.status(201).json({ leagueId: nextId });
   } catch (err) {
+    console.error('Error creating league:', err.message);
     res.status(500).json({ error: 'Failed to create league' });
   }
 });
@@ -255,12 +277,21 @@ io.on('connection', (socket) => {
       return;
     }
 
-    // If availablePlayers is empty, fetch players
+    // If availablePlayers is empty (shouldn't happen), fetch players as a fallback
     if (!league.availablePlayers || league.availablePlayers.length === 0) {
-      league.availablePlayers = await fetchPlayers();
+      console.warn(`availablePlayers is empty for league ${leagueId}, fetching players as fallback`);
+      const fetchedPlayers = await fetchPlayers();
+      if (fetchedPlayers.length === 0) {
+        socket.emit('draft-status', { error: 'Failed to fetch player data. Please try again later.' });
+        return;
+      }
+      league.availablePlayers = fetchedPlayers;
+      console.log('Fetched availablePlayers:', league.availablePlayers.map(p => ({ id: p.id, name: p.name })));
       data.leagues[leagueId] = league;
       writeJsonFile(FILES.leagues, data);
       syncLeaguesToGitHub();
+    } else {
+      console.log('Existing availablePlayers:', league.availablePlayers.map(p => ({ id: p.id, name: p.name })));
     }
 
     // If teams are not initialized, set them up
@@ -346,6 +377,8 @@ io.on('connection', (socket) => {
       return;
     }
 
+    console.log('Player being drafted:', player);
+    console.log('Available players in draft-pick:', league.availablePlayers.map(p => ({ id: p.id, name: p.name })));
     if (!league.availablePlayers.some(p => p.id === player.id)) {
       console.log(`Rejected pick: Player ${player.name} is not available`);
       return;
