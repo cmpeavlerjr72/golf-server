@@ -13,10 +13,6 @@ const io = new Server(server, {
   cors: { origin: '*' },
 });
 
-// Track team ownership: { leagueId: { teamIndex: socket.id } }
-let teamOwners = {};
-let activeClients = {}; // Track active clients per league: { leagueId: Set<socket.id> }
-
 const PORT = process.env.PORT || 5000;
 
 // Middleware
@@ -111,6 +107,28 @@ const restoreLeaguesFromGitHub = async () => {
   }
 };
 
+// Fetch player data
+const fetchPlayers = async () => {
+  try {
+    const fieldData = await fetch(`https://feeds.datagolf.com/field-updates?tour=pga&file_format=json&key=${process.env.DATAGOLF_API_KEY}`).then(res => res.json());
+    const rankingsData = await fetch(`https://feeds.datagolf.com/preds/dg-rankings?file_format=json&key=${process.env.DATAGOLF_API_KEY}`).then(res => res.json());
+    const normalizeName = (name) => (name ? name.toLowerCase().trim() : '');
+    const players = fieldData.field.map(p => {
+      const match = rankingsData.rankings.find(r => normalizeName(r.player_name) === normalizeName(p.player_name));
+      return {
+        id: p.dg_id,
+        name: p.player_name,
+        owgr_rank: match?.owgr_rank || 1000,
+        dg_rank: match?.datagolf_rank || 1000,
+      };
+    });
+    return players;
+  } catch (err) {
+    console.error('Error fetching players:', err.message);
+    return [];
+  }
+};
+
 // Data update functions
 const updateHoleByHole = async () => {
   const url = `https://feeds.datagolf.com/preds/live-hole-scores?file_format=json&key=${process.env.DATAGOLF_API_KEY}`;
@@ -166,18 +184,21 @@ app.get('/leagues/:id', (req, res) => {
   res.json(league);
 });
 
-app.post('/leagues', (req, res) => {
+app.post('/leagues', async (req, res) => {
   try {
     const data = readJsonFile(FILES.leagues, { leagues: {} });
     const { teams, teamNames } = req.body;
     const nextId = Math.max(0, ...Object.keys(data.leagues).map(Number)) + 1;
+    const availablePlayers = await fetchPlayers();
     data.leagues[nextId] = {
       teams: teams || [],
       teamNames: teamNames || [],
-      currentTeam: 0,
+      availablePlayers: availablePlayers,
+      currentTeamIndex: 0,
       snakeDirection: 1,
       isDrafting: false,
       draftComplete: false,
+      teamOwners: {},
     };
     writeJsonFile(FILES.leagues, data);
     syncLeaguesToGitHub();
@@ -226,17 +247,7 @@ app.post('/update-data', async (req, res) => {
 io.on('connection', (socket) => {
   console.log('🟢 New user connected:', socket.id);
 
-  socket.on('join-draft', ({ leagueId }) => {
-    // Initialize active clients for this league if not already set
-    if (!activeClients[leagueId]) {
-      activeClients[leagueId] = new Set();
-    }
-
-    // Add the client to the active clients set
-    activeClients[leagueId].add(socket.id);
-    console.log(`Client ${socket.id} joined league ${leagueId}. Active clients: ${activeClients[leagueId].size}`);
-
-    // Read league data to get the current draft state
+  socket.on('join-draft', async ({ leagueId }) => {
     const data = readJsonFile(FILES.leagues, { leagues: {} });
     const league = data.leagues[leagueId];
     if (!league) {
@@ -244,69 +255,35 @@ io.on('connection', (socket) => {
       return;
     }
 
-    const draftComplete = league.teams?.every((t) => t.length === 6) || false;
+    // If availablePlayers is empty, fetch players
+    if (!league.availablePlayers || league.availablePlayers.length === 0) {
+      league.availablePlayers = await fetchPlayers();
+      data.leagues[leagueId] = league;
+      writeJsonFile(FILES.leagues, data);
+      syncLeaguesToGitHub();
+    }
 
-    // If this is the first client and the draft isn't complete, reset the draft state
-    if (activeClients[leagueId].size === 1 && !draftComplete) {
-      console.log(`First client joined league ${leagueId}. Resetting draft state.`);
-      if (teamOwners[leagueId]) {
-        delete teamOwners[leagueId];
-      }
-      if (data.leagues[leagueId]) {
-        data.leagues[leagueId] = {
-          ...data.leagues[leagueId],
-          teams: data.leagues[leagueId].teams.map(() => []),
-          currentTeam: 0,
-          snakeDirection: 1,
-          isDrafting: false,
-          draftComplete: false,
-        };
-        writeJsonFile(FILES.leagues, data);
-        syncLeaguesToGitHub();
-      }
-      io.emit('draft-reset', { leagueId });
+    // If teams are not initialized, set them up
+    if (!league.teams || league.teams.length === 0) {
+      league.teams = Array(league.teamNames.length).fill().map(() => []);
+      data.leagues[leagueId] = league;
+      writeJsonFile(FILES.leagues, data);
+      syncLeaguesToGitHub();
     }
 
     // Send the current draft state to the joining client
     socket.emit('draft-status', {
-      isFirstClient: activeClients[leagueId].size === 1,
-      draftComplete: league.draftComplete || false,
-      teams: league.teams || [],
-      currentTeam: league.currentTeam || 0,
+      teams: league.teams,
+      teamNames: league.teamNames,
+      availablePlayers: league.availablePlayers,
+      currentTeamIndex: league.currentTeamIndex || 0,
       snakeDirection: league.snakeDirection || 1,
       isDrafting: league.isDrafting || false,
-    });
-  });
-
-  socket.on('start-draft', ({ leagueId }) => {
-    console.log(`Starting draft for league ${leagueId}`);
-    const data = readJsonFile(FILES.leagues, { leagues: {} });
-    if (!data.leagues[leagueId]) return;
-
-    // Update draft state
-    data.leagues[leagueId] = {
-      ...data.leagues[leagueId],
-      isDrafting: true,
-      currentTeam: 0,
-      snakeDirection: 1,
-      draftComplete: false,
-    };
-    writeJsonFile(FILES.leagues, data);
-    syncLeaguesToGitHub();
-
-    // Broadcast updated state to all clients
-    io.emit('draft-update', {
-      leagueId,
-      teams: data.leagues[leagueId].teams,
-      currentTeam: 0,
-      snakeDirection: 1,
-      isDrafting: true,
-      draftComplete: false,
+      draftComplete: league.draftComplete || false,
     });
   });
 
   socket.on('assign-team', ({ leagueId, teamIndex }) => {
-    // Check if the draft is complete
     const data = readJsonFile(FILES.leagues, { leagues: {} });
     const league = data.leagues[leagueId];
     if (!league) {
@@ -314,15 +291,17 @@ io.on('connection', (socket) => {
       return;
     }
 
-    const draftComplete = league.draftComplete || false;
-    if (draftComplete) {
+    if (league.draftComplete) {
       socket.emit('team-assigned', { success: false, message: 'Draft is already complete. You cannot change teams.' });
       return;
     }
 
-    if (!teamOwners[leagueId]) teamOwners[leagueId] = {};
-    if (!teamOwners[leagueId][teamIndex] || teamOwners[leagueId][teamIndex] === socket.id) {
-      teamOwners[leagueId][teamIndex] = socket.id;
+    if (!league.teamOwners) league.teamOwners = {};
+    if (!league.teamOwners[teamIndex] || league.teamOwners[teamIndex] === socket.id) {
+      league.teamOwners[teamIndex] = socket.id;
+      data.leagues[leagueId] = league;
+      writeJsonFile(FILES.leagues, data);
+      syncLeaguesToGitHub();
       console.log(`Assigned team ${teamIndex} in league ${leagueId} to socket ${socket.id}`);
       socket.emit('team-assigned', { success: true, teamIndex });
     } else {
@@ -331,50 +310,72 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('draft-pick', ({ leagueId, teamIndex, player }) => {
-    console.log(`Received draft-pick: leagueId=${leagueId}, teamIndex=${teamIndex}, player=${player.name}`);
+  socket.on('start-draft', ({ leagueId }) => {
     const data = readJsonFile(FILES.leagues, { leagues: {} });
     const league = data.leagues[leagueId];
-    if (!league) return;
+    if (!league || league.isDrafting) return;
 
-    if (!teamOwners[leagueId] || teamOwners[leagueId][teamIndex] !== socket.id) {
-      console.log(`Rejected pick: Socket ${socket.id} does not own team ${teamIndex}`);
-      return;
-    }
-
-    if (league.draftComplete) {
-      console.log(`Rejected pick: Draft for league ${leagueId} is already complete`);
-      return;
-    }
-
-    // Add the player to the team
-    league.teams[teamIndex].push(player);
-
-    // Update draft state
-    let nextTeam = league.currentTeam + league.snakeDirection;
-    if (nextTeam >= league.teams.length) {
-      nextTeam = league.teams.length - 1;
-      league.snakeDirection = -1;
-    } else if (nextTeam < 0) {
-      nextTeam = 0;
-      league.snakeDirection = 1;
-    }
-    league.currentTeam = nextTeam;
-    league.draftComplete = league.teams.every((t) => t.length === 6);
-
-    // Save updated state
+    console.log(`Starting draft for league ${leagueId}`);
+    league.isDrafting = true;
+    league.currentTeamIndex = 0;
+    league.snakeDirection = 1;
+    league.draftComplete = false;
+    league.teams = Array(league.teamNames.length).fill().map(() => []);
     data.leagues[leagueId] = league;
     writeJsonFile(FILES.leagues, data);
     syncLeaguesToGitHub();
 
-    // Broadcast updated state to all clients
+    io.emit('draft-update', {
+      leagueId,
+      teams: league.teams,
+      availablePlayers: league.availablePlayers,
+      currentTeamIndex: league.currentTeamIndex,
+      snakeDirection: league.snakeDirection,
+      isDrafting: league.isDrafting,
+      draftComplete: league.draftComplete,
+    });
+  });
+
+  socket.on('draft-pick', ({ leagueId, teamIndex, player }) => {
+    const data = readJsonFile(FILES.leagues, { leagues: {} });
+    const league = data.leagues[leagueId];
+    if (!league || !league.isDrafting || league.draftComplete) return;
+
+    if (!league.teamOwners || league.teamOwners[teamIndex] !== socket.id) {
+      console.log(`Rejected pick: Socket ${socket.id} does not own team ${teamIndex}`);
+      return;
+    }
+
+    if (!league.availablePlayers.some(p => p.id === player.id)) {
+      console.log(`Rejected pick: Player ${player.name} is not available`);
+      return;
+    }
+
+    console.log(`Received draft-pick: leagueId=${leagueId}, teamIndex=${teamIndex}, player=${player.name}`);
+    league.teams[teamIndex].push(player);
+    league.availablePlayers = league.availablePlayers.filter(p => p.id !== player.id);
+
+    let nextTeamIndex = league.currentTeamIndex + league.snakeDirection;
+    if (nextTeamIndex >= league.teamNames.length) {
+      nextTeamIndex = league.teamNames.length - 1;
+      league.snakeDirection = -1;
+    } else if (nextTeamIndex < 0) {
+      nextTeamIndex = 0;
+      league.snakeDirection = 1;
+    }
+    league.currentTeamIndex = nextTeamIndex;
+    league.draftComplete = league.teams.every(t => t.length === 6);
+
+    data.leagues[leagueId] = league;
+    writeJsonFile(FILES.leagues, data);
+    syncLeaguesToGitHub();
+
     console.log(`Broadcasting draft-update: leagueId=${leagueId}, teamIndex=${teamIndex}, player=${player.name}`);
     io.emit('draft-update', {
       leagueId,
-      teamIndex,
-      player,
       teams: league.teams,
-      currentTeam: league.currentTeam,
+      availablePlayers: league.availablePlayers,
+      currentTeamIndex: league.currentTeamIndex,
       snakeDirection: league.snakeDirection,
       isDrafting: league.isDrafting,
       draftComplete: league.draftComplete,
@@ -383,31 +384,20 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     console.log('🔴 User disconnected:', socket.id);
-    // Remove the client from active clients
-    for (const leagueId in activeClients) {
-      if (activeClients[leagueId].has(socket.id)) {
-        activeClients[leagueId].delete(socket.id);
-        console.log(`Client ${socket.id} left league ${leagueId}. Active clients: ${activeClients[leagueId].size}`);
-        // If no clients remain, clean up
-        if (activeClients[leagueId].size === 0) {
-          delete activeClients[leagueId];
-          // Clear teamOwners if draft is not complete
-          const data = readJsonFile(FILES.leagues, { leagues: {} });
-          const draftComplete = data.leagues[leagueId]?.draftComplete || false;
-          if (!draftComplete) {
-            delete teamOwners[leagueId];
+    const data = readJsonFile(FILES.leagues, { leagues: {} });
+    for (const leagueId in data.leagues) {
+      const league = data.leagues[leagueId];
+      if (league.teamOwners) {
+        for (const teamIndex in league.teamOwners) {
+          if (league.teamOwners[teamIndex] === socket.id) {
+            delete league.teamOwners[teamIndex];
           }
         }
+        data.leagues[leagueId] = league;
       }
     }
-    // Remove the client from teamOwners
-    for (const leagueId in teamOwners) {
-      for (const teamIndex in teamOwners[leagueId]) {
-        if (teamOwners[leagueId][teamIndex] === socket.id) {
-          delete teamOwners[leagueId][teamIndex];
-        }
-      }
-    }
+    writeJsonFile(FILES.leagues, data);
+    syncLeaguesToGitHub();
   });
 });
 
