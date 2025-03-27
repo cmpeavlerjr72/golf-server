@@ -15,6 +15,9 @@ const io = new Server(server, {
 
 const PORT = process.env.PORT || 5000;
 
+// In-memory cache for league data
+const leagueCache = new Map();
+
 // Middleware
 app.use(cors());
 app.use(bodyParser.json());
@@ -61,6 +64,7 @@ const writeJsonFile = (filePath, data) => {
     console.log(`${filePath} updated successfully`);
   } catch (err) {
     console.error(`Error writing to ${filePath}:`, err.message);
+    throw err;
   }
 };
 
@@ -107,18 +111,12 @@ const restoreLeaguesFromGitHub = async () => {
   }
 };
 
-// Fetch player data with fallback
-const fetchPlayers = async () => {
+// Fetch players from the server's /field and /rankings endpoints
+const getPlayersFromServer = async () => {
   try {
-    const fieldResponse = await fetch(`https://feeds.datagolf.com/field-updates?tour=pga&file_format=json&key=${process.env.DATAGOLF_API_KEY}`);
-    if (!fieldResponse.ok) throw new Error(`Field API request failed: ${fieldResponse.status}`);
-    const fieldData = await fieldResponse.json();
-    console.log('Field API response:', fieldData);
-
-    const rankingsResponse = await fetch(`https://feeds.datagolf.com/preds/dg-rankings?file_format=json&key=${process.env.DATAGOLF_API_KEY}`);
-    if (!rankingsResponse.ok) throw new Error(`Rankings API request failed: ${rankingsResponse.status}`);
-    const rankingsData = await rankingsResponse.json();
-    console.log('Rankings API response:', rankingsData);
+    // Read directly from the JSON files for better performance
+    const fieldData = readJsonFile(FILES.fieldList, { field: [] });
+    const rankingsData = readJsonFile(FILES.rankings, { rankings: [] });
 
     const normalizeName = (name) => (name ? name.toLowerCase().trim() : '');
     const players = fieldData.field.map(p => {
@@ -130,12 +128,12 @@ const fetchPlayers = async () => {
         dg_rank: match?.datagolf_rank || 1000,
       };
     });
-    console.log('Fetched players:', players.map(p => ({ id: p.id, name: p.name })));
+    console.log('Players from server:', players.map(p => ({ id: p.id, name: p.name })));
     return players;
   } catch (err) {
-    console.error('Error fetching players:', err.message);
+    console.error('Error fetching players from server:', err.message);
     return [
-      { id: 12345, name: 'Scheffler, Scottie', owgr_rank: 1, dg_rank: 1 },
+      { id: 18417, name: 'Scheffler, Scottie', owgr_rank: 1, dg_rank: 1 },
       { id: 67890, name: 'McIlroy, Rory', owgr_rank: 2, dg_rank: 2 },
       { id: 54321, name: 'Rahm, Jon', owgr_rank: 3, dg_rank: 3 },
       { id: 98765, name: 'Thomas, Justin', owgr_rank: 4, dg_rank: 4 },
@@ -181,6 +179,18 @@ const updateFieldList = async () => {
   }
 };
 
+const updateRankings = async () => {
+  const url = `https://feeds.datagolf.com/preds/dg-rankings?file_format=json&key=${process.env.DATAGOLF_API_KEY}`;
+  try {
+    const res = await fetch(url);
+    const data = await res.json();
+    writeJsonFile(FILES.rankings, data);
+    console.log(`[${getEasternTime()}] Updated rankings.json`);
+  } catch (err) {
+    console.error('Error updating rankings:', err.message);
+  }
+};
+
 // API routes
 app.get('/live-stats', (req, res) => res.json(readJsonFile(FILES.liveStats, [])));
 app.get('/field', (req, res) => res.json(readJsonFile(FILES.fieldList, [])));
@@ -204,17 +214,11 @@ app.post('/leagues', async (req, res) => {
     const data = readJsonFile(FILES.leagues, { leagues: {} });
     const { teams, teamNames } = req.body;
     const nextId = Math.max(0, ...Object.keys(data.leagues).map(Number)) + 1;
-    const availablePlayers = await fetchPlayers();
-    if (availablePlayers.length === 0) {
-      console.error('Failed to fetch players during league creation');
-      return res.status(500).json({ error: 'Failed to fetch player data. Cannot create league.' });
-    }
-    console.log('Creating league with availablePlayers:', availablePlayers.map(p => ({ id: p.id, name: p.name })));
 
     const newLeague = {
       teams: teams || Array(teamNames.length).fill().map(() => []),
       teamNames: teamNames || [],
-      availablePlayers: availablePlayers,
+      availablePlayers: [], // Initialize as empty; we'll populate it in start-draft
       currentTeamIndex: 0,
       snakeDirection: 1,
       isDrafting: false,
@@ -223,10 +227,14 @@ app.post('/leagues', async (req, res) => {
     };
     data.leagues[nextId] = newLeague;
 
-    writeJsonFile(FILES.leagues, data);
-    const updatedData = readJsonFile(FILES.leagues, { leagues: {} });
-    console.log('After writing, availablePlayers in leagues.json:', updatedData.leagues[nextId].availablePlayers.map(p => ({ id: p.id, name: p.name })));
-    syncLeaguesToGitHub();
+    try {
+      writeJsonFile(FILES.leagues, data);
+      // syncLeaguesToGitHub();
+    } catch (err) {
+      console.error('Failed to write league data in POST /leagues:', err.message);
+      return res.status(500).json({ error: 'Failed to save league data.' });
+    }
+
     res.status(201).json({ leagueId: nextId });
   } catch (err) {
     console.error('Error creating league:', err.message);
@@ -240,8 +248,13 @@ app.put('/leagues/:id', (req, res) => {
     const league = data.leagues[req.params.id];
     if (!league) return res.status(404).json({ error: 'League not found' });
     data.leagues[req.params.id] = { ...league, ...req.body };
-    writeJsonFile(FILES.leagues, data);
-    syncLeaguesToGitHub();
+    try {
+      writeJsonFile(FILES.leagues, data);
+      // syncLeaguesToGitHub();
+    } catch (err) {
+      console.error('Failed to write league data in PUT /leagues:', err.message);
+      return res.status(500).json({ error: 'Failed to update league data.' });
+    }
     res.json(data.leagues[req.params.id]);
   } catch (err) {
     res.status(500).json({ error: 'Failed to update league' });
@@ -260,6 +273,7 @@ app.post('/update-data', async (req, res) => {
     const today = new Date().toISOString().split('T')[0];
     if (lastFieldUpdate !== today) {
       await updateFieldList();
+      await updateRankings();
       lastFieldUpdate = today;
     }
     lastUpdateTime = currentTime;
@@ -283,35 +297,26 @@ io.on('connection', (socket) => {
 
     console.log(`Initial availablePlayers for league ${leagueId}:`, league.availablePlayers ? league.availablePlayers.map(p => ({ id: p.id, name: p.name })) : 'empty');
 
-    if (!league.availablePlayers || league.availablePlayers.length === 0) {
-      console.warn(`availablePlayers is empty for league ${leagueId}, fetching players as fallback`);
-      const fetchedPlayers = await fetchPlayers();
-      if (fetchedPlayers.length === 0) {
-        socket.emit('draft-status', { error: 'Failed to fetch player data. Please try again later.' });
-        return;
-      }
-      league.availablePlayers = fetchedPlayers;
-      console.log('Fetched availablePlayers:', league.availablePlayers.map(p => ({ id: p.id, name: p.name })));
-      data.leagues[leagueId] = league;
-      writeJsonFile(FILES.leagues, data);
-      const updatedData = readJsonFile(FILES.leagues, { leagues: {} });
-      console.log('After writing in join-draft, availablePlayers in leagues.json:', updatedData.leagues[leagueId].availablePlayers.map(p => ({ id: p.id, name: p.name })));
-      syncLeaguesToGitHub();
-    } else {
-      console.log('Existing availablePlayers:', league.availablePlayers.map(p => ({ id: p.id, name: p.name })));
-    }
-
     if (!league.teams || league.teams.length === 0) {
       league.teams = Array(league.teamNames.length).fill().map(() => []);
       data.leagues[leagueId] = league;
-      writeJsonFile(FILES.leagues, data);
-      syncLeaguesToGitHub();
+      try {
+        writeJsonFile(FILES.leagues, data);
+        // syncLeaguesToGitHub();
+      } catch (err) {
+        console.error('Failed to write teams data in join-draft:', err.message);
+        socket.emit('draft-status', { error: 'Failed to initialize teams on the server. Please try again.' });
+        return;
+      }
     }
+
+    // Cache the league data in memory
+    leagueCache.set(leagueId, { ...league });
 
     socket.emit('draft-status', {
       teams: league.teams,
       teamNames: league.teamNames,
-      availablePlayers: league.availablePlayers,
+      availablePlayers: league.availablePlayers || [],
       currentTeamIndex: league.currentTeamIndex || 0,
       snakeDirection: league.snakeDirection || 1,
       isDrafting: league.isDrafting || false,
@@ -320,11 +325,18 @@ io.on('connection', (socket) => {
   });
 
   socket.on('assign-team', ({ leagueId, teamIndex }) => {
-    const data = readJsonFile(FILES.leagues, { leagues: {} });
-    const league = data.leagues[leagueId];
+    let league = leagueCache.get(leagueId);
+    let data;
+
     if (!league) {
-      socket.emit('team-assigned', { success: false, message: 'League not found.' });
-      return;
+      data = readJsonFile(FILES.leagues, { leagues: {} });
+      league = data.leagues[leagueId];
+      if (!league) {
+        socket.emit('team-assigned', { success: false, message: 'League not found.' });
+        return;
+      }
+    } else {
+      data = readJsonFile(FILES.leagues, { leagues: {} });
     }
 
     if (league.draftComplete) {
@@ -336,8 +348,15 @@ io.on('connection', (socket) => {
     if (!league.teamOwners[teamIndex] || league.teamOwners[teamIndex] === socket.id) {
       league.teamOwners[teamIndex] = socket.id;
       data.leagues[leagueId] = league;
-      writeJsonFile(FILES.leagues, data);
-      syncLeaguesToGitHub();
+      try {
+        writeJsonFile(FILES.leagues, data);
+        // syncLeaguesToGitHub();
+      } catch (err) {
+        console.error('Failed to write league data in assign-team:', err.message);
+        socket.emit('team-assigned', { success: false, message: 'Failed to assign team on the server.' });
+        return;
+      }
+      leagueCache.set(leagueId, { ...league });
       console.log(`Assigned team ${teamIndex} in league ${leagueId} to socket ${socket.id}`);
       socket.emit('team-assigned', { success: true, teamIndex });
     } else {
@@ -346,13 +365,32 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('start-draft', ({ leagueId }) => {
-    const data = readJsonFile(FILES.leagues, { leagues: {} });
-    const league = data.leagues[leagueId];
-    if (!league || league.isDrafting) return;
+  socket.on('start-draft', async ({ leagueId }) => {
+    let league = leagueCache.get(leagueId);
+    let data;
+
+    if (!league) {
+      data = readJsonFile(FILES.leagues, { leagues: {} });
+      league = data.leagues[leagueId];
+      if (!league || league.isDrafting) return;
+    } else {
+      data = readJsonFile(FILES.leagues, { leagues: {} });
+    }
 
     console.log(`Starting draft for league ${leagueId}`);
-    console.log('Before starting draft, availablePlayers:', league.availablePlayers.map(p => ({ id: p.id, name: p.name })));
+    console.log('Before starting draft, availablePlayers:', league.availablePlayers ? league.availablePlayers.map(p => ({ id: p.id, name: p.name })) : 'empty');
+
+    // Initialize availablePlayers if not already set
+    if (!league.availablePlayers || league.availablePlayers.length === 0) {
+      const players = await getPlayersFromServer();
+      if (players.length === 0) {
+        console.error('Failed to fetch players from server in start-draft');
+        io.emit('draft-update', { leagueId, error: 'Failed to fetch player data. Please try again.' });
+        return;
+      }
+      league.availablePlayers = players;
+      console.log('Initialized availablePlayers:', league.availablePlayers.map(p => ({ id: p.id, name: p.name })));
+    }
 
     league.isDrafting = true;
     league.currentTeamIndex = 0;
@@ -362,10 +400,17 @@ io.on('connection', (socket) => {
 
     console.log('After setting draft state, availablePlayers:', league.availablePlayers.map(p => ({ id: p.id, name: p.name })));
     data.leagues[leagueId] = league;
-    writeJsonFile(FILES.leagues, data);
-    const updatedData = readJsonFile(FILES.leagues, { leagues: {} });
-    console.log('After writing in start-draft, availablePlayers in leagues.json:', updatedData.leagues[leagueId].availablePlayers.map(p => ({ id: p.id, name: p.name })));
-    syncLeaguesToGitHub();
+
+    try {
+      writeJsonFile(FILES.leagues, data);
+      const updatedData = readJsonFile(FILES.leagues, { leagues: {} });
+      console.log('After writing in start-draft, availablePlayers in leagues.json:', updatedData.leagues[leagueId].availablePlayers.map(p => ({ id: p.id, name: p.name })));
+      // syncLeaguesToGitHub();
+    } catch (err) {
+      console.error('Failed to write updated league data in start-draft:', err.message);
+    }
+
+    leagueCache.set(leagueId, { ...league });
 
     io.emit('draft-update', {
       leagueId,
@@ -379,8 +424,17 @@ io.on('connection', (socket) => {
   });
 
   socket.on('draft-pick', ({ leagueId, teamIndex, player }) => {
-    const data = readJsonFile(FILES.leagues, { leagues: {} });
-    const league = data.leagues[leagueId];
+    let league = leagueCache.get(leagueId);
+    let data;
+
+    if (!league) {
+      data = readJsonFile(FILES.leagues, { leagues: {} });
+      league = data.leagues[leagueId];
+      if (!league) return;
+    } else {
+      data = readJsonFile(FILES.leagues, { leagues: {} });
+    }
+
     if (!league || !league.isDrafting || league.draftComplete) return;
 
     if (!league.teamOwners || league.teamOwners[teamIndex] !== socket.id) {
@@ -412,9 +466,15 @@ io.on('connection', (socket) => {
     league.currentTeamIndex = nextTeamIndex;
     league.draftComplete = league.teams.every(t => t.length === 6);
 
+    leagueCache.set(leagueId, { ...league });
+
     data.leagues[leagueId] = league;
-    writeJsonFile(FILES.leagues, data);
-    syncLeaguesToGitHub();
+    try {
+      writeJsonFile(FILES.leagues, data);
+      // syncLeaguesToGitHub();
+    } catch (err) {
+      console.error('Failed to write updated league data in draft-pick:', err.message);
+    }
 
     console.log(`Broadcasting draft-update: leagueId=${leagueId}, teamIndex=${teamIndex}, player=${player.name}`);
     io.emit('draft-update', {
@@ -440,10 +500,15 @@ io.on('connection', (socket) => {
           }
         }
         data.leagues[leagueId] = league;
+        leagueCache.set(leagueId, { ...league });
       }
     }
-    writeJsonFile(FILES.leagues, data);
-    syncLeaguesToGitHub();
+    try {
+      writeJsonFile(FILES.leagues, data);
+      // syncLeaguesToGitHub();
+    } catch (err) {
+      console.error('Failed to write league data in disconnect:', err.message);
+    }
   });
 });
 
