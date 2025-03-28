@@ -223,13 +223,8 @@ app.get('/live-stats', (req, res) => res.json(readJsonFile(FILES.liveStats, []))
 app.get('/field', (req, res) => res.json(readJsonFile(FILES.fieldList, [])));
 app.get('/rankings', (req, res) => res.json(readJsonFile(FILES.rankings, [])));
 app.get('/holes', (req, res) => res.json(readJsonFile(FILES.holeByHole, [])));
-app.get('/preds', async (req, res) => {
-  const predictions = await readData('preds.json');
-  if (!predictions) {
-    return res.status(404).json({ error: 'Predictions data not found' });
-  }
-  res.json(predictions);
-});
+app.get('/preds', (req, res) => res.json(readJsonFile(FILES.preds, [])));
+
 app.get('/leagues', (req, res) => {
   const data = readJsonFile(FILES.leagues, { leagues: {} });
   res.json(data.leagues);
