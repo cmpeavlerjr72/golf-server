@@ -27,6 +27,7 @@ const FILES = {
   fieldList: `${DATA_PATH}/field.json`,
   rankings: `${DATA_PATH}/rankings.json`,
   leagues: `${DATA_PATH}/leagues.json`,
+  preds: `${DATA_PATH}/preds.json`,
 };
 
 const GITHUB_REPO = process.env.GITHUB_REPO;
@@ -181,6 +182,18 @@ const updateLiveStats = async () => {
   }
 };
 
+const updatePreds = async () => {
+  const url = `https://feeds.datagolf.com/preds/in-play?tour=pga&dead_heat=no&odds_format=percent&key=${process.env.DATAGOLF_API_KEY}`;
+  try {
+    const res = await fetch(url);
+    const data = await res.json();
+    writeJsonFile(FILES.preds, data);
+    console.log(`[${getEasternTime()}] Updated preds.json`);
+  } catch (err) {
+    console.error('Error updating live stats:', err.message);
+  }
+};
+
 const updateFieldList = async () => {
   const url = `https://feeds.datagolf.com/field-updates?tour=pga&file_format=json&key=${process.env.DATAGOLF_API_KEY}`;
   try {
@@ -210,6 +223,7 @@ app.get('/live-stats', (req, res) => res.json(readJsonFile(FILES.liveStats, []))
 app.get('/field', (req, res) => res.json(readJsonFile(FILES.fieldList, [])));
 app.get('/rankings', (req, res) => res.json(readJsonFile(FILES.rankings, [])));
 app.get('/holes', (req, res) => res.json(readJsonFile(FILES.holeByHole, [])));
+app.get('/preds', (req, res) => res.json(readJsonFile(FILES.preds, [])));
 
 app.get('/leagues', (req, res) => {
   const data = readJsonFile(FILES.leagues, { leagues: {} });
@@ -284,6 +298,7 @@ app.post('/update-data', async (req, res) => {
     }
     await updateHoleByHole();
     await updateLiveStats();
+    await updatePreds();
     const today = new Date().toISOString().split('T')[0];
     if (lastFieldUpdate !== today) {
       await updateFieldList();
